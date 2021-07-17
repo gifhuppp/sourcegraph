@@ -90,7 +90,10 @@ func TestServer_handleRepoLookup(t *testing.T) {
 		}
 		defer func() { mockRepoLookup = nil }()
 
-		if got, want := repoLookupResult(t, "github.com/a/b"), (protocol.RepoLookupResult{}); !reflect.DeepEqual(got, want) {
+		if got, want := repoLookupResult(t, "github.com/a/b"), (protocol.RepoLookupResult{}); !reflect.DeepEqual(
+			got,
+			want,
+		) {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
 	})
@@ -351,21 +354,21 @@ func TestServer_RepoLookup(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name               string
-		args               protocol.RepoLookupArgs
-		stored             types.Repos
-		result             *protocol.RepoLookupResult
-		githubDotComSource *fakeRepoSource
-		gitlabDotComSource *fakeRepoSource
-		assert             types.ReposAssertion
-		assertDelay        time.Duration
-		err                string
+		name        string
+		args        protocol.RepoLookupArgs
+		stored      types.Repos
+		result      *protocol.RepoLookupResult
+		src         repos.Source
+		assert      types.ReposAssertion
+		assertDelay time.Duration
+		err         string
 	}{
 		{
 			name: "not found",
 			args: protocol.RepoLookupArgs{
 				Repo: api.RepoName("github.com/a/b"),
 			},
+			src: repos.NewFakeSource(&githubSource, nil),
 			result: &protocol.RepoLookupResult{ErrorNotFound: true},
 			err:    fmt.Sprintf("repository not found (name=%s notfound=%v)", api.RepoName("github.com/a/b"), true),
 		},
@@ -374,6 +377,7 @@ func TestServer_RepoLookup(t *testing.T) {
 			args: protocol.RepoLookupArgs{
 				Repo: api.RepoName("github.com/foo/bar"),
 			},
+			src: repos.NewFakeSource(&githubSource, nil, githubRepository),
 			stored: []*types.Repo{githubRepository},
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				ExternalRepo: api.ExternalRepoSpec{
@@ -397,6 +401,7 @@ func TestServer_RepoLookup(t *testing.T) {
 			args: protocol.RepoLookupArgs{
 				Repo: api.RepoName("git-codecommit.us-west-1.amazonaws.com/stripe-go"),
 			},
+			src: repos.NewFakeSource(&awsSource, nil, awsCodeCommitRepository),
 			stored: []*types.Repo{awsCodeCommitRepository},
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				ExternalRepo: api.ExternalRepoSpec{
@@ -421,9 +426,7 @@ func TestServer_RepoLookup(t *testing.T) {
 				Repo: api.RepoName("github.com/foo/bar"),
 			},
 			stored: []*types.Repo{},
-			githubDotComSource: &fakeRepoSource{
-				repo: githubRepository,
-			},
+			src:    repos.NewFakeSource(&githubSource, nil, githubRepository),
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				ExternalRepo: api.ExternalRepoSpec{
 					ID:          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
@@ -448,9 +451,7 @@ func TestServer_RepoLookup(t *testing.T) {
 				Repo: api.RepoName("github.com/foo/bar"),
 			},
 			stored: []*types.Repo{githubRepository},
-			githubDotComSource: &fakeRepoSource{
-				repo: githubRepository,
-			},
+			src:    repos.NewFakeSource(&githubSource, nil, githubRepository),
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				ExternalRepo: api.ExternalRepoSpec{
 					ID:          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
@@ -473,9 +474,7 @@ func TestServer_RepoLookup(t *testing.T) {
 			args: protocol.RepoLookupArgs{
 				Repo: api.RepoName("github.com/foo/bar"),
 			},
-			githubDotComSource: &fakeRepoSource{
-				err: github.ErrRepoNotFound,
-			},
+			src:    repos.NewFakeSource(&githubSource, github.ErrRepoNotFound),
 			result: &protocol.RepoLookupResult{ErrorNotFound: true},
 			err:    fmt.Sprintf("repository not found (name=%s notfound=%v)", api.RepoName("github.com/foo/bar"), true),
 			assert: types.Assert.ReposEqual(),
@@ -485,9 +484,7 @@ func TestServer_RepoLookup(t *testing.T) {
 			args: protocol.RepoLookupArgs{
 				Repo: api.RepoName("github.com/foo/bar"),
 			},
-			githubDotComSource: &fakeRepoSource{
-				err: &github.APIError{Code: http.StatusUnauthorized},
-			},
+			src:    repos.NewFakeSource(&githubSource, &github.APIError{Code: http.StatusUnauthorized}),
 			result: &protocol.RepoLookupResult{ErrorUnauthorized: true},
 			err:    fmt.Sprintf("not authorized (name=%s noauthz=%v)", api.RepoName("github.com/foo/bar"), true),
 			assert: types.Assert.ReposEqual(),
@@ -497,11 +494,13 @@ func TestServer_RepoLookup(t *testing.T) {
 			args: protocol.RepoLookupArgs{
 				Repo: api.RepoName("github.com/foo/bar"),
 			},
-			githubDotComSource: &fakeRepoSource{
-				err: &github.APIError{Message: "API rate limit exceeded"},
-			},
+			src:    repos.NewFakeSource(&githubSource, &github.APIError{Message: "API rate limit exceeded"}),
 			result: &protocol.RepoLookupResult{ErrorTemporarilyUnavailable: true},
-			err:    fmt.Sprintf("repository temporarily unavailable (name=%s istemporary=%v)", api.RepoName("github.com/foo/bar"), true),
+			err: fmt.Sprintf(
+				"repository temporarily unavailable (name=%s istemporary=%v)",
+				api.RepoName("github.com/foo/bar"),
+				true,
+			),
 			assert: types.Assert.ReposEqual(),
 		},
 		{
@@ -510,9 +509,7 @@ func TestServer_RepoLookup(t *testing.T) {
 				Repo: api.RepoName("gitlab.com/foo/bar"),
 			},
 			stored: []*types.Repo{},
-			gitlabDotComSource: &fakeRepoSource{
-				repo: gitlabRepository,
-			},
+			src:    repos.NewFakeSource(&gitlabSource, nil, gitlabRepository),
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				Name:        "gitlab.com/gitlab-org/gitaly",
 				Description: "Gitaly is a Git RPC service for handling all the git calls made by GitLab",
@@ -537,9 +534,7 @@ func TestServer_RepoLookup(t *testing.T) {
 				Repo: api.RepoName("gitlab.com/foo/bar"),
 			},
 			stored: []*types.Repo{gitlabRepository},
-			gitlabDotComSource: &fakeRepoSource{
-				repo: gitlabRepository,
-			},
+			src:    repos.NewFakeSource(&gitlabSource, nil, gitlabRepository),
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				Name:        "gitlab.com/gitlab-org/gitaly",
 				Description: "Gitaly is a Git RPC service for handling all the git calls made by GitLab",
@@ -558,26 +553,13 @@ func TestServer_RepoLookup(t *testing.T) {
 			}},
 		},
 		{
-			name: "GithubDotcomSource on Sourcegraph.com ignores non-Github.com repos",
-			args: protocol.RepoLookupArgs{
-				Repo: api.RepoName("git-codecommit.us-west-1.amazonaws.com/stripe-go"),
-			},
-			githubDotComSource: &fakeRepoSource{
-				repo: githubRepository,
-			},
-			result: &protocol.RepoLookupResult{ErrorNotFound: true},
-			err:    fmt.Sprintf("repository not found (name=%s notfound=%v)", api.RepoName("git-codecommit.us-west-1.amazonaws.com/stripe-go"), true),
-		},
-		{
 			name: "Private repos are not supported on sourcegraph.com",
 			args: protocol.RepoLookupArgs{
 				Repo: githubRepository.Name,
 			},
-			githubDotComSource: &fakeRepoSource{
-				repo: githubRepository.With(func(r *types.Repo) {
-					r.Private = true
-				}),
-			},
+			src: repos.NewFakeSource(&githubSource, nil, githubRepository.With(func(r *types.Repo) {
+				r.Private = true
+			})),
 			result: &protocol.RepoLookupResult{ErrorNotFound: true},
 			err:    fmt.Sprintf("repository not found (name=%s notfound=%v)", githubRepository.Name, true),
 		},
@@ -586,9 +568,7 @@ func TestServer_RepoLookup(t *testing.T) {
 			args: protocol.RepoLookupArgs{
 				Repo: githubRepository.Name,
 			},
-			githubDotComSource: &fakeRepoSource{
-				err: github.ErrRepoNotFound,
-			},
+			src:    repos.NewFakeSource(&githubSource, github.ErrRepoNotFound),
 			stored: []*types.Repo{githubRepository},
 			result: &protocol.RepoLookupResult{Repo: &protocol.RepoInfo{
 				ExternalRepo: api.ExternalRepoSpec{
@@ -617,43 +597,28 @@ func TestServer_RepoLookup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			rs := tc.stored.Clone()
-			err := store.RepoStore.Create(ctx, rs...)
+			_, err := db.ExecContext(ctx, "DELETE FROM repo")
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() {
-				_, err := db.ExecContext(ctx, "DELETE FROM repo")
-				if err != nil {
-					t.Fatal(err)
-				}
-			})
 
-			t.Cleanup(func() {
-				ids := make([]api.RepoID, 0, len(tc.stored))
-				for _, r := range tc.stored {
-					ids = append(ids, r.ID)
-				}
-				err := store.RepoStore.Delete(ctx, ids...)
-				if err != nil {
-					t.Fatal(err)
-				}
-			})
+			rs := tc.stored.Clone()
+			err = store.RepoStore.Create(ctx, rs...)
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			clock := clock
 			syncer := &repos.Syncer{
 				Now:   clock.Now,
 				Store: store,
-			}
-			s := &Server{Syncer: syncer, Store: store}
-			if tc.githubDotComSource != nil {
-				s.SourcegraphDotComMode = true
-				s.GithubDotComSource = tc.githubDotComSource
+				Sourcer: repos.NewFakeSourcer(nil, tc.src),
 			}
 
-			if tc.gitlabDotComSource != nil {
-				s.SourcegraphDotComMode = true
-				s.GitLabDotComSource = tc.gitlabDotComSource
+			s := &Server{
+				Syncer: syncer,
+				Store: store,
+				SourcegraphDotComMode: true,
 			}
 
 			srv := httptest.NewServer(s.Handler())
@@ -690,15 +655,6 @@ func TestServer_RepoLookup(t *testing.T) {
 			}
 		})
 	}
-}
-
-type fakeRepoSource struct {
-	repo *types.Repo
-	err  error
-}
-
-func (s *fakeRepoSource) GetRepo(context.Context, string) (*types.Repo, error) {
-	return s.repo.Clone(), s.err
 }
 
 type fakeScheduler struct{}
