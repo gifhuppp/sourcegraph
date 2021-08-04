@@ -277,7 +277,6 @@ func (s *Store) ListBatchSpecExecutions(ctx context.Context, opts ListBatchSpecE
 var listBatchSpecExecutionsQueryFmtstr = `
 -- source: enterprise/internal/batches/store/batch_spec_execution.go:ListBatchSpecExecutions
 SELECT %s FROM batch_spec_executions
-%s
 WHERE %s
 ORDER BY id ASC
 `
@@ -286,7 +285,7 @@ func listBatchSpecExecutionsQuery(opts ListBatchSpecExecutionsOpts) *sqlf.Query 
 	preds := []*sqlf.Query{}
 
 	if opts.Cancel != nil {
-		preds = append(preds, sqlf.Sprintf("batch_spec_executions.cancel IS %t", *opts.Cancel))
+		preds = append(preds, sqlf.Sprintf("batch_spec_executions.cancel = %s", *opts.Cancel))
 	}
 
 	if opts.State != "" {
@@ -303,7 +302,7 @@ func listBatchSpecExecutionsQuery(opts ListBatchSpecExecutionsOpts) *sqlf.Query 
 
 	return sqlf.Sprintf(
 		listBatchSpecExecutionsQueryFmtstr,
-		sqlf.Join(batchChangeColumns, ", "),
+		sqlf.Join(BatchSpecExecutionColumns, ", "),
 		sqlf.Join(preds, "\n AND "),
 	)
 }
