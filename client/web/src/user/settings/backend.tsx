@@ -127,7 +127,7 @@ export function logUserEvent(event: UserEvent): void {
  * When invoked on a non-Sourcegraph.com instance, this data is stored in the
  * instance's database, and not sent to Sourcegraph.com.
  */
-export function logEvent(event: string, eventProperties?: unknown): void {
+export function logEvent(event: string, eventProperties?: unknown, publicEventProperties?: unknown): void {
     requestGraphQL<LogEventResult, LogEventVariables>(
         gql`
             mutation LogEvent(
@@ -139,6 +139,7 @@ export function logEvent(event: string, eventProperties?: unknown): void {
                 $url: String!
                 $source: EventSource!
                 $argument: String
+                $publicEventProperties: String
             ) {
                 logEvent(
                     event: $event
@@ -149,6 +150,7 @@ export function logEvent(event: string, eventProperties?: unknown): void {
                     url: $url
                     source: $source
                     argument: $argument
+                    publicEventProperties: $publicEventProperties
                 ) {
                     alwaysNil
                 }
@@ -163,6 +165,7 @@ export function logEvent(event: string, eventProperties?: unknown): void {
             url: window.location.href,
             source: EventSource.WEB,
             argument: eventProperties ? JSON.stringify(eventProperties) : null,
+            publicEventProperties: publicEventProperties ? JSON.stringify(publicEventProperties) : null,
         }
     )
         .pipe(map(dataOrThrowErrors))

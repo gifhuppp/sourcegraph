@@ -69,11 +69,11 @@ export class EventLogger implements TelemetryService {
      * Log a user action or event.
      * Event labels should be specific and follow a ${noun}${verb} structure in pascal case, e.g. "ButtonClicked" or "SignInInitiated"
      */
-    public log(eventLabel: string, eventProperties?: any): void {
+    public log(eventLabel: string, eventProperties?: any, publicEventProperties?: any): void {
         if (window.context?.userAgentIsBot || !eventLabel) {
             return
         }
-        serverAdmin.trackAction(eventLabel, eventProperties)
+        serverAdmin.trackAction(eventLabel, eventProperties, publicEventProperties)
         this.logToConsole(eventLabel, eventProperties)
     }
 
