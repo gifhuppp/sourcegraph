@@ -1,0 +1,5 @@
+BEGIN;
+
+ALTER TABLE IF EXISTS event_logs ADD COLUMN IF NOT EXISTS public_event_properties JSONB DEFAULT '{}'::jsonb NOT NULL;
+
+COMMIT;

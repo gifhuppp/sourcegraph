@@ -558,19 +558,20 @@ Referenced by:
 
 # Table "public.event_logs"
 ```
-      Column       |           Type           | Collation | Nullable |                Default                 
--------------------+--------------------------+-----------+----------+----------------------------------------
- id                | bigint                   |           | not null | nextval('event_logs_id_seq'::regclass)
- name              | text                     |           | not null | 
- url               | text                     |           | not null | 
- user_id           | integer                  |           | not null | 
- anonymous_user_id | text                     |           | not null | 
- source            | text                     |           | not null | 
- argument          | jsonb                    |           | not null | 
- version           | text                     |           | not null | 
- timestamp         | timestamp with time zone |           | not null | 
- feature_flags     | jsonb                    |           |          | 
- cohort_id         | date                     |           |          | 
+         Column          |           Type           | Collation | Nullable |                Default                 
+-------------------------+--------------------------+-----------+----------+----------------------------------------
+ id                      | bigint                   |           | not null | nextval('event_logs_id_seq'::regclass)
+ name                    | text                     |           | not null | 
+ url                     | text                     |           | not null | 
+ user_id                 | integer                  |           | not null | 
+ anonymous_user_id       | text                     |           | not null | 
+ source                  | text                     |           | not null | 
+ argument                | jsonb                    |           | not null | 
+ version                 | text                     |           | not null | 
+ timestamp               | timestamp with time zone |           | not null | 
+ feature_flags           | jsonb                    |           |          | 
+ cohort_id               | date                     |           |          | 
+ public_event_properties | jsonb                    |           |          | 
 Indexes:
     "event_logs_pkey" PRIMARY KEY, btree (id)
     "event_logs_anonymous_user_id" btree (anonymous_user_id)
