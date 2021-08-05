@@ -49,21 +49,26 @@ func (l *EventLogStore) Transact(ctx context.Context) (*EventLogStore, error) {
 
 // Event contains information needed for logging an event.
 type Event struct {
-	Name            string
-	URL             string
-	UserID          uint32
-	AnonymousUserID string
-	Argument        json.RawMessage
-	Source          string
-	Timestamp       time.Time
-	FeatureFlags    featureflag.FlagSet
-	CohortID        *string // date in YYYY-MM-DD format
+	Name                  string
+	URL                   string
+	UserID                uint32
+	AnonymousUserID       string
+	Argument              json.RawMessage
+	PublicEventProperties json.RawMessage
+	Source                string
+	Timestamp             time.Time
+	FeatureFlags          featureflag.FlagSet
+	CohortID              *string // date in YYYY-MM-DD format
 }
 
 func (l *EventLogStore) Insert(ctx context.Context, e *Event) error {
 	argument := e.Argument
 	if argument == nil {
 		argument = json.RawMessage([]byte(`{}`))
+	}
+	publicEventProperties := e.PublicEventProperties
+	if e.PublicEventProperties == nil {
+		publicEventProperties = json.RawMessage([]byte(`{}`))
 	}
 
 	featureFlags, err := json.Marshal(e.FeatureFlags)
@@ -73,13 +78,14 @@ func (l *EventLogStore) Insert(ctx context.Context, e *Event) error {
 
 	_, err = l.Handle().DB().ExecContext(
 		ctx,
-		"INSERT INTO event_logs(name, url, user_id, anonymous_user_id, source, argument, version, timestamp, feature_flags, cohort_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+		"INSERT INTO event_logs(name, url, user_id, anonymous_user_id, source, argument, public_event_properties, version, timestamp, feature_flags, cohort_id) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
 		e.Name,
 		e.URL,
 		e.UserID,
 		e.AnonymousUserID,
 		e.Source,
 		argument,
+		publicEventProperties,
 		version.Version(),
 		e.Timestamp.UTC(),
 		featureFlags,

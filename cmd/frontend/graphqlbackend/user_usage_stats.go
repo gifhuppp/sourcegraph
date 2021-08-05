@@ -78,46 +78,55 @@ func (*schemaResolver) LogUserEvent(ctx context.Context, args *struct {
 }
 
 func (r *schemaResolver) LogEvent(ctx context.Context, args *struct {
-	Event          string
-	UserCookieID   string
-	FirstSourceURL *string
-	URL            string
-	Source         string
-	Argument       *string
-	CohortID       *string
-	Referrer       *string
+	Event                 string
+	UserCookieID          string
+	FirstSourceURL        *string
+	URL                   string
+	Source                string
+	Argument              *string
+	CohortID              *string
+	Referrer              *string
+	PublicEventProperties *string
 }) (*EmptyResponse, error) {
 	if !conf.EventLoggingEnabled() {
 		return nil, nil
 	}
 
-	var payload json.RawMessage
+	var argumentPayload json.RawMessage
 	if args.Argument != nil {
-		if err := json.Unmarshal([]byte(*args.Argument), &payload); err != nil {
+		if err := json.Unmarshal([]byte(*args.Argument), &argumentPayload); err != nil {
 			return nil, err
 		}
 	}
 
 	if strings.HasPrefix(args.Event, "search.latencies.frontend.") {
-		if err := exportPrometheusSearchLatencies(args.Event, payload); err != nil {
+		if err := exportPrometheusSearchLatencies(args.Event, argumentPayload); err != nil {
 			log15.Error("export prometheus search latencies", "error", err)
 		}
 		return nil, nil // Future(slimsag): implement actual event logging for these events
 	}
 
+	var publicPropertiesPayload json.RawMessage
+	if args.PublicEventProperties != nil {
+		if err := json.Unmarshal([]byte(*args.PublicEventProperties), &publicPropertiesPayload); err != nil {
+			return nil, err
+		}
+	}
+
 	actor := actor.FromContext(ctx)
 	ffs := featureflag.FromContext(ctx)
 	return nil, usagestats.LogEvent(ctx, r.db, usagestats.Event{
-		EventName:      args.Event,
-		URL:            args.URL,
-		UserID:         actor.UID,
-		UserCookieID:   args.UserCookieID,
-		FirstSourceURL: args.FirstSourceURL,
-		Source:         args.Source,
-		Argument:       payload,
-		FeatureFlags:   ffs,
-		CohortID:       args.CohortID,
-		Referrer:       args.Referrer,
+		EventName:             args.Event,
+		URL:                   args.URL,
+		UserID:                actor.UID,
+		UserCookieID:          args.UserCookieID,
+		FirstSourceURL:        args.FirstSourceURL,
+		Source:                args.Source,
+		Argument:              argumentPayload,
+		FeatureFlags:          ffs,
+		CohortID:              args.CohortID,
+		Referrer:              args.Referrer,
+		PublicEventProperties: publicPropertiesPayload,
 	})
 }
 

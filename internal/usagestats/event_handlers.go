@@ -32,8 +32,9 @@ type Event struct {
 	CohortID       *string
 	// Referrer is only measured for Cloud events; therefore, this only goes to the BigQuery database
 	// and does not go to the Postgres DB.
-	Referrer *string
-	Argument json.RawMessage
+	Referrer              *string
+	Argument              json.RawMessage
+	PublicEventProperties json.RawMessage
 }
 
 // LogBackendEvent is a convenience function for logging backend events.
@@ -61,20 +62,21 @@ func LogEvent(ctx context.Context, db dbutil.DB, args Event) error {
 			return err
 		}
 	}
-	return logLocalEvent(ctx, db, args.EventName, args.URL, args.UserID, args.UserCookieID, args.Source, args.Argument, args.FeatureFlags, args.CohortID)
+	return logLocalEvent(ctx, db, args.EventName, args.URL, args.UserID, args.UserCookieID, args.Source, args.Argument, args.PublicEventProperties, args.FeatureFlags, args.CohortID)
 }
 
 type bigQueryEvent struct {
-	EventName       string  `json:"name"`
-	AnonymousUserID string  `json:"anonymous_user_id"`
-	FirstSourceURL  string  `json:"first_source_url"`
-	UserID          int     `json:"user_id"`
-	Source          string  `json:"source"`
-	Timestamp       string  `json:"timestamp"`
-	Version         string  `json:"version"`
-	FeatureFlags    string  `json:"feature_flags"`
-	CohortID        *string `json:"cohort_id,omitempty"`
-	Referrer        string  `json:"referrer,omitempty"`
+	EventName             string  `json:"name"`
+	AnonymousUserID       string  `json:"anonymous_user_id"`
+	FirstSourceURL        string  `json:"first_source_url"`
+	UserID                int     `json:"user_id"`
+	Source                string  `json:"source"`
+	Timestamp             string  `json:"timestamp"`
+	Version               string  `json:"version"`
+	FeatureFlags          string  `json:"feature_flags"`
+	CohortID              *string `json:"cohort_id,omitempty"`
+	Referrer              string  `json:"referrer,omitempty"`
+	PublicEventProperties string  `json:"eventProperties,omitempty"`
 }
 
 // publishSourcegraphDotComEvent publishes Sourcegraph.com events to BigQuery.
@@ -98,16 +100,17 @@ func publishSourcegraphDotComEvent(args Event) error {
 		return err
 	}
 	event, err := json.Marshal(bigQueryEvent{
-		EventName:       args.EventName,
-		UserID:          int(args.UserID),
-		AnonymousUserID: args.UserCookieID,
-		FirstSourceURL:  firstSourceURL,
-		Referrer:        referrer,
-		Source:          args.Source,
-		Timestamp:       time.Now().UTC().Format(time.RFC3339),
-		Version:         version.Version(),
-		FeatureFlags:    string(featureFlagJSON),
-		CohortID:        args.CohortID,
+		EventName:             args.EventName,
+		UserID:                int(args.UserID),
+		AnonymousUserID:       args.UserCookieID,
+		FirstSourceURL:        firstSourceURL,
+		Referrer:              referrer,
+		Source:                args.Source,
+		Timestamp:             time.Now().UTC().Format(time.RFC3339),
+		Version:               version.Version(),
+		FeatureFlags:          string(featureFlagJSON),
+		CohortID:              args.CohortID,
+		PublicEventProperties: string(args.PublicEventProperties),
 	})
 	if err != nil {
 		return err
@@ -116,7 +119,7 @@ func publishSourcegraphDotComEvent(args Event) error {
 }
 
 // logLocalEvent logs users events.
-func logLocalEvent(ctx context.Context, db dbutil.DB, name, url string, userID int32, userCookieID, source string, argument json.RawMessage, featureFlags featureflag.FlagSet, cohortID *string) error {
+func logLocalEvent(ctx context.Context, db dbutil.DB, name, url string, userID int32, userCookieID, source string, argument, publicEventProperties json.RawMessage, featureFlags featureflag.FlagSet, cohortID *string) error {
 	if name == "SearchResultsQueried" {
 		err := logSiteSearchOccurred()
 		if err != nil {
@@ -131,15 +134,16 @@ func logLocalEvent(ctx context.Context, db dbutil.DB, name, url string, userID i
 	}
 
 	info := &database.Event{
-		Name:            name,
-		URL:             url,
-		UserID:          uint32(userID),
-		AnonymousUserID: userCookieID,
-		Source:          source,
-		Argument:        argument,
-		Timestamp:       timeNow().UTC(),
-		FeatureFlags:    featureFlags,
-		CohortID:        cohortID,
+		Name:                  name,
+		URL:                   url,
+		UserID:                uint32(userID),
+		AnonymousUserID:       userCookieID,
+		Source:                source,
+		Argument:              argument,
+		Timestamp:             timeNow().UTC(),
+		FeatureFlags:          featureFlags,
+		CohortID:              cohortID,
+		PublicEventProperties: publicEventProperties,
 	}
 	return database.EventLogs(db).Insert(ctx, info)
 }
