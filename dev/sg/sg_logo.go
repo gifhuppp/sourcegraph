@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"math/rand"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/sourcegraph/sourcegraph/dev/sg/internal/category"
 	"github.com/sourcegraph/sourcegraph/dev/sg/internal/std"
 	"github.com/sourcegraph/sourcegraph/lib/output"
 )
@@ -19,8 +19,8 @@ var funkyLogoCommand = &cli.Command{
 	ArgsUsage:   "[classic]",
 	Usage:       "Print the sg logo",
 	Description: "By default, prints the sg logo in different colors. When the 'classic' argument is passed it prints the classic logo.",
-	Category:    CategoryUtil,
-	Action:      execAdapter(logoExec),
+	Category:    category.Util,
+	Action:      logoExec,
 }
 
 var styleOrange = output.Fg256Color(202)
@@ -69,7 +69,8 @@ func printLogo(out io.Writer) {
 	fmt.Fprintf(out, "%s", output.StyleReset)
 }
 
-func logoExec(ctx context.Context, args []string) error {
+func logoExec(ctx *cli.Context) error {
+	args := ctx.Args().Slice()
 	if len(args) == 1 && args[0] == "classic" {
 		var logoOut bytes.Buffer
 		printLogo(&logoOut)
@@ -89,7 +90,7 @@ func logoExec(ctx context.Context, args []string) error {
 	)
 
 	times := 20
-	for i := 0; i < times; i++ {
+	for i := range times {
 		const linesPrinted = 23
 
 		std.Out.Writef("%s", color2)

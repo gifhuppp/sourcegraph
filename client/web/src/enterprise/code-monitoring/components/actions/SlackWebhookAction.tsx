@@ -3,10 +3,10 @@ import React, { useCallback, useMemo, useState } from 'react'
 import { gql, useMutation } from '@apollo/client'
 import { noop } from 'lodash'
 
-import { Alert, Input, Link, ProductStatusBadge, Label } from '@sourcegraph/wildcard'
+import { Alert, Input, Label, Link } from '@sourcegraph/wildcard'
 
-import { SendTestSlackWebhookResult, SendTestSlackWebhookVariables } from '../../../../graphql-operations'
-import { ActionProps } from '../FormActionArea'
+import type { SendTestSlackWebhookResult, SendTestSlackWebhookVariables } from '../../../../graphql-operations'
+import type { ActionProps } from '../FormActionArea'
 
 import { ActionEditor } from './ActionEditor'
 
@@ -101,12 +101,7 @@ export const SlackWebhookAction: React.FunctionComponent<React.PropsWithChildren
 
     return (
         <ActionEditor
-            title={
-                <div className="d-flex align-items-center">
-                    Send Slack message to channel <ProductStatusBadge className="ml-1" status="experimental" />{' '}
-                </div>
-            }
-            label="Send Slack message to channel"
+            title={<div>Send Slack message to channel</div>}
             subtitle="Post to a specified Slack channel. Requires webhook configuration."
             idName="slack-webhook"
             disabled={disabled}
@@ -140,7 +135,7 @@ export const SlackWebhookAction: React.FunctionComponent<React.PropsWithChildren
                 </Link>
             </Alert>
             <div className="form-group">
-                <Label htmlFor="code-monitor-slack-webhook-url">Webhook URL</Label>
+                <Label htmlFor="code-monitor-slack-webhook-url">Slack webhook URL</Label>
                 <Input
                     id="code-monitor-slack-webhook-url"
                     type="url"
@@ -154,7 +149,7 @@ export const SlackWebhookAction: React.FunctionComponent<React.PropsWithChildren
                     autoFocus={true}
                     spellCheck={false}
                     status={urlIsValid ? 'valid' : url ? 'error' : undefined /* Don't show error state when empty */}
-                    error={!urlIsValid && url && 'Enter a valid Slack webhook URL.'}
+                    error={!urlIsValid && url ? 'Enter a valid Slack webhook URL.' : undefined}
                 />
             </div>
         </ActionEditor>

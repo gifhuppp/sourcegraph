@@ -1,108 +1,82 @@
 package query
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/grafana/regexp"
-	"github.com/hexops/autogold"
+	"github.com/hexops/autogold/v2"
 	"github.com/stretchr/testify/require"
 )
 
-func toJSON(node Node) any {
-	switch n := node.(type) {
-	case Operator:
-		var jsons []any
-		for _, o := range n.Operands {
-			jsons = append(jsons, toJSON(o))
-		}
+func TestExperimentalPhraseBoost(t *testing.T) {
+	test := func(input string, searchType SearchType) string {
+		plan, err := Pipeline(
+			Init(input, SearchTypeKeyword))
+		require.NoError(t, err)
 
-		switch n.Kind {
-		case And:
-			return struct {
-				And []any `json:"and"`
-			}{
-				And: jsons,
-			}
-		case Or:
-			return struct {
-				Or []any `json:"or"`
-			}{
-				Or: jsons,
-			}
-		case Concat:
-			return struct {
-				Concat []any `json:"concat"`
-			}{
-				Concat: jsons,
-			}
-		}
-	case Parameter:
-		return struct {
-			Field   string   `json:"field"`
-			Value   string   `json:"value"`
-			Negated bool     `json:"negated"`
-			Labels  []string `json:"labels"`
-		}{
-			Field:   n.Field,
-			Value:   n.Value,
-			Negated: n.Negated,
-			Labels:  n.Annotation.Labels.String(),
-		}
-	case Pattern:
-		return struct {
-			Value   string   `json:"value"`
-			Negated bool     `json:"negated"`
-			Labels  []string `json:"labels"`
-		}{
-			Value:   n.Value,
-			Negated: n.Negated,
-			Labels:  n.Annotation.Labels.String(),
-		}
-	}
-	// unreachable.
-	return struct{}{}
-}
+		plan = MapPlan(plan, func(basic Basic) Basic {
+			return ExperimentalPhraseBoost(input, basic)
+		})
 
-func nodesToJSON(nodes []Node) string {
-	var jsons []any
-	for _, node := range nodes {
-		jsons = append(jsons, toJSON(node))
+		return plan.ToQ().String()
 	}
-	json, err := json.Marshal(jsons)
-	if err != nil {
-		return ""
-	}
-	return string(json)
+
+	// expect phrase query
+	autogold.Expect(`(or "foo bar bas" (and "foo" "bar" "bas"))`).Equal(t, test("foo bar bas", SearchTypeKeyword))
+	autogold.Expect(`(or "(foo and bar) and bas" (and "foo" "bar" "bas"))`).Equal(t, test("(foo and bar) and bas", SearchTypeKeyword))
+	autogold.Expect(`(or "* int func(" (and "*" "int" "func("))`).Equal(t, test("* int func(", SearchTypeKeyword))
+	autogold.Expect(`(or "\"foo bar\" bas qux" (and "foo bar" "bas" "qux"))`).Equal(t, test(`"foo bar" bas qux`, SearchTypeKeyword))
+	autogold.Expect(`(or "foo 'bar bas' qux" (and "foo" "bar bas" "qux"))`).Equal(t, test(`foo 'bar bas' qux`, SearchTypeKeyword))
+	autogold.Expect(`(and "type:file" (or "foo 'bar bas' qux" (and "foo" "bar bas" "qux")))`).Equal(t, test(`type:file foo 'bar bas' qux`, SearchTypeKeyword))
+
+	// expect no phrase query
+	autogold.Expect(`"foo bar bas"`).Equal(t, test("/foo bar bas/", SearchTypeKeyword))
+	autogold.Expect(`(and "foo" "bar" "ba.*")`).Equal(t, test("foo bar /ba.*/", SearchTypeKeyword))
+	autogold.Expect(`"foo"`).Equal(t, test("foo", SearchTypeKeyword))
+	autogold.Expect(`(or "foo and bar" (and "foo" "bar"))`).Equal(t, test("foo and bar", SearchTypeKeyword))
+	autogold.Expect(`(and "foo" (not "bar"))`).Equal(t, test("foo not bar", SearchTypeKeyword))
+	autogold.Expect(`(and "foo" "bar" (not "bas") "quz")`).Equal(t, test("foo bar not bas quz", SearchTypeKeyword))
+	autogold.Expect(`(or "foo" "bar" "bas")`).Equal(t, test("foo or bar or bas", SearchTypeKeyword))
+	autogold.Expect(`(or (and "foo" "bar") (and "quz" "biz"))`).Equal(t, test("foo and bar or (quz and biz)", SearchTypeKeyword))
+	autogold.Expect(`(and "type:repo" "sourcegraph")`).Equal(t, test("type:repo 'sourcegraph'", SearchTypeKeyword))
+	autogold.Expect(`(and "type:diff" "//" "varargs")`).Equal(t, test("type:diff // varargs", SearchTypeKeyword))
+
+	// cases that came up in user feedback
+	autogold.Expect(`(and "repo:golang/go" (or "// The vararg opts parameter can include functions to configure the" (and "//" "The" "vararg" "opts" "parameter" "can" "include" "functions" "to" "configure" "the")))`).Equal(t, test("repo:golang/go // The vararg opts parameter can include functions to configure the", SearchTypeKeyword))
+	autogold.Expect(`(and "context:global" (or "invalid modelID;" (and "invalid" "modelID;")))`).Equal(t, test("context:global invalid modelID;", SearchTypeKeyword))
+	autogold.Expect(`(and "context:global" (or "return \"various\";" (and "return" "\"various\";")))`).Equal(t, test("context:global return \"various\";", SearchTypeKeyword))
+	autogold.Expect(`(and "repo:golang/go" (or "test server" (and "test" "server")))`).Equal(t, test("repo:golang/go test server", SearchTypeKeyword))
+	autogold.Expect(`(and "repo:sourcegraph/cody@main" (or "the models and other" (and "the" "models" "other")))`).Equal(t, test("repo:sourcegraph/cody@main the models and other ", SearchTypeKeyword))
+	autogold.Expect(`(and "repo:sourcegraph/cody@main" (or "'sourcegraph'" "sourcegraph"))`).Equal(t, test("repo:sourcegraph/cody@main 'sourcegraph'", SearchTypeKeyword))
+	autogold.Expect(`(and "repo:sourcegraph/zoekt" (or "\"some string\"" "some string"))`).Equal(t, test("repo:sourcegraph/zoekt \"some string\"", SearchTypeKeyword))
+
 }
 
 func TestSubstituteAliases(t *testing.T) {
 	test := func(input string, searchType SearchType) string {
 		query, _ := ParseSearchType(input, searchType)
-		return nodesToJSON(query)
+		json, _ := ToJSON(query)
+		return json
 	}
 
-	autogold.Want(
-		"basic substitution",
-		`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"]},{"field":"file","value":"file","negated":false,"labels":["IsAlias"]}]}]`).
+	autogold.Expect(`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"],"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":6}}},{"field":"file","value":"file","negated":false,"labels":["IsAlias"],"range":{"start":{"line":0,"column":7},"end":{"line":0,"column":13}}}]}]`).
 		Equal(t, test("r:repo f:file", SearchTypeRegex))
 
-	autogold.Want(
-		"special case for content substitution",
-		`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"]},{"value":"^a-regexp:tbf$","negated":false,"labels":["IsAlias","Regexp"]}]}]`).
+	autogold.Expect(`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"],"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":6}}},{"value":"^a-regexp:tbf$","negated":false,"labels":["IsContent","Regexp"],"range":{"start":{"line":0,"column":7},"end":{"line":0,"column":29}}}]}]`).
 		Equal(t, test("r:repo content:^a-regexp:tbf$", SearchTypeRegex))
 
-	autogold.Want(
-		"substitution honors literal search pattern",
-		`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"]},{"value":"^not-actually-a-regexp:tbf$","negated":false,"labels":["IsAlias","Literal"]}]}]`).
-		Equal(t, test("r:repo content:^not-actually-a-regexp:tbf$", SearchTypeLiteralDefault))
+	autogold.Expect(`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"],"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":6}}},{"value":"^not-actually-a-regexp:tbf$","negated":false,"labels":["IsContent","Literal"],"range":{"start":{"line":0,"column":7},"end":{"line":0,"column":42}}}]}]`).
+		Equal(t, test("r:repo content:^not-actually-a-regexp:tbf$", SearchTypeLiteral))
 
-	autogold.Want(
-		"substitution honors path",
-		`[{"field":"file","value":"foo","negated":false,"labels":["IsAlias"]}]`).
-		Equal(t, test("path:foo", SearchTypeLiteralDefault))
+	autogold.Expect(`[{"field":"file","value":"foo","negated":false,"labels":["IsAlias"],"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":8}}}]`).
+		Equal(t, test("path:foo", SearchTypeLiteral))
+
+	autogold.Expect(`[{"and":[{"field":"repo","value":"repo","negated":false,"labels":["IsAlias"],"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":6}}},{"value":"foo","negated":false,"labels":["Literal","QuotesAsLiterals","Standard"],"range":{"start":{"line":0,"column":7},"end":{"line":0,"column":10}}},{"value":"bar","negated":false,"labels":["Literal","QuotesAsLiterals","Standard"],"range":{"start":{"line":0,"column":11},"end":{"line":0,"column":14}}}]}]`).
+		Equal(t, test("r:repo foo bar", SearchTypeKeyword))
+
+	autogold.Expect(`[{"and":[{"value":"foo","negated":false,"labels":["Literal","QuotesAsLiterals","Standard"],"range":{"start":{"line":0,"column":0},"end":{"line":0,"column":3}}},{"value":"bar","negated":false,"labels":["Literal","QuotesAsLiterals","Standard"],"range":{"start":{"line":0,"column":4},"end":{"line":0,"column":7}}},{"value":"bas","negated":false,"labels":["Regexp"],"range":{"start":{"line":0,"column":8},"end":{"line":0,"column":13}}}]}]`).
+		Equal(t, test("foo bar /bas/", SearchTypeKeyword))
 }
 
 func TestLowercaseFieldNames(t *testing.T) {
@@ -220,107 +194,64 @@ func TestHoist(t *testing.T) {
 	}
 }
 
-func TestSubstituteOrForRegexp(t *testing.T) {
-	cases := []struct {
-		input string
-		want  string
-	}{
-		{
-			input: "foo or bar",
-			want:  `"(?:foo)|(?:bar)"`,
-		},
-		{
-			input: "(foo or (bar or baz))",
-			want:  `"(?:foo)|(?:bar)|(?:baz)"`,
-		},
-		{
-			input: "repo:foobar foo or (bar or baz)",
-			want:  `(or "(?:bar)|(?:baz)" (and "repo:foobar" "foo"))`,
-		},
-		{
-			input: "(foo or (bar or baz)) and foobar",
-			want:  `(and "(?:foo)|(?:bar)|(?:baz)" "foobar")`,
-		},
-		{
-			input: "(foo or (bar and baz))",
-			want:  `(or "(?:foo)" (and "bar" "baz"))`,
-		},
-		{
-			input: "foo or (bar and baz) or foobar",
-			want:  `(or "(?:foo)|(?:foobar)" (and "bar" "baz"))`,
-		},
-		{
-			input: "repo:foo a or b",
-			want:  `(and "repo:foo" "(?:a)|(?:b)")`,
-		},
+func TestConcat(t *testing.T) {
+	test := func(input string, searchType SearchType) string {
+		query, _ := ParseSearchType(input, searchType)
+		json, _ := PrettyJSON(query)
+		return json
 	}
-	for _, c := range cases {
-		t.Run("Map query", func(t *testing.T) {
-			query, _ := Parse(c.input, SearchTypeRegex)
-			got := toString(substituteOrForRegexp(query))
-			if diff := cmp.Diff(c.want, got); diff != "" {
-				t.Fatal(diff)
-			}
-		})
-	}
-}
 
-func TestSubstituteConcat(t *testing.T) {
-	cases := []struct {
-		input  string
-		concat func([]Pattern) Pattern
-		want   string
-	}{
-		{
-			input:  "a b c d e f",
-			concat: space,
-			want:   `"a b c d e f"`,
-		},
-		{
-			input:  "a (b and c) d",
-			concat: space,
-			want:   `"a" (and "b" "c") "d"`,
-		},
-		{
-			input:  "a b (c and d) e f (g or h) (i j k)",
-			concat: space,
-			want:   `"a b" (and "c" "d") "e f" (or "g" "h") "(i j k)"`,
-		},
-		{
-			input:  "(((a b c))) and d",
-			concat: space,
-			want:   `(and "(((a b c)))" "d")`,
-		},
-		{
-			input:  `foo\d "bar*"`,
-			concat: fuzzyRegexp,
-			want:   `"(?:foo\\d).*?(?:bar\\*)"`,
-		},
-		{
-			input:  `"bar*" foo\d "bar*" foo\d`,
-			concat: fuzzyRegexp,
-			want:   `"(?:bar\\*).*?(?:foo\\d).*?(?:bar\\*).*?(?:foo\\d)"`,
-		},
-		{
-			input:  "a b (c and d) e f (g or h) (i j k)",
-			concat: fuzzyRegexp,
-			want:   `"(?:a).*?(?:b)" (and "c" "d") "(?:e).*?(?:f)" (or "g" "h") "(i j k)"`,
-		},
-		{
-			input:  "(a not b not c d)",
-			concat: space,
-			want:   `"a" (not "b") (not "c") "d"`,
-		},
-	}
-	for _, c := range cases {
-		t.Run("Map query", func(t *testing.T) {
-			query, _ := Parse(c.input, SearchTypeRegex)
-			got := toString(Map(query, substituteConcat(c.concat)))
-			if diff := cmp.Diff(c.want, got); diff != "" {
-				t.Fatal(diff)
-			}
-		})
-	}
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("a b c d e f", SearchTypeLiteral)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("(a not b not c d)", SearchTypeLiteral)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("(((a b c))) and d", SearchTypeLiteral)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test(`foo\d "bar*"`, SearchTypeRegex)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test(`"bar*" foo\d "bar*" foo\d`, SearchTypeRegex)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("a b (c and d) e f (g or h) (i j k)", SearchTypeRegex)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test(`/alsace/ bourgogne bordeaux /champagne/`, SearchTypeStandard)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test(`alsace /bourgogne/ bordeaux`, SearchTypeStandard)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test(`/alsace/ bourgogne bordeaux /champagne/`, SearchTypeKeyword)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test(`alsace /bourgogne/ bordeaux`, SearchTypeKeyword)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("a b c d e f", SearchTypeKeyword)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("(a not b not c d)", SearchTypeKeyword)))
+	})
+
+	t.Run("", func(t *testing.T) {
+		autogold.ExpectFile(t, autogold.Raw(test("(((a b c))) and d", SearchTypeKeyword)))
+	})
 }
 
 func TestEllipsesForHoles(t *testing.T) {
@@ -457,7 +388,7 @@ func TestPipeline(t *testing.T) {
 	}}
 	for _, c := range cases {
 		t.Run("Map query", func(t *testing.T) {
-			plan, err := Pipeline(Init(c.input, SearchTypeLiteralDefault))
+			plan, err := Pipeline(Init(c.input, SearchTypeLiteral))
 			require.NoError(t, err)
 			got := plan.ToQ().String()
 			if diff := cmp.Diff(c.want, got); diff != "" {
@@ -495,383 +426,6 @@ func TestMap(t *testing.T) {
 	}
 }
 
-func TestTranslateGlobToRegex(t *testing.T) {
-	cases := []struct {
-		input string
-		want  string
-	}{
-		{
-			input: "*",
-			want:  "^[^/]*?$",
-		},
-		{
-			input: "*repo",
-			want:  "^[^/]*?repo$",
-		},
-		{
-			input: "**.go",
-			want:  "^.*?\\.go$",
-		},
-		{
-			input: "foo**",
-			want:  "^foo.*?$",
-		},
-		{
-			input: "re*o",
-			want:  "^re[^/]*?o$",
-		},
-		{
-			input: "repo*",
-			want:  "^repo[^/]*?$",
-		},
-		{
-			input: "?",
-			want:  "^.$",
-		},
-		{
-			input: "?repo",
-			want:  "^.repo$",
-		},
-		{
-			input: "re?o",
-			want:  "^re.o$",
-		},
-		{
-			input: "repo?",
-			want:  "^repo.$",
-		},
-		{
-			input: "123",
-			want:  "^123$",
-		},
-		{
-			input: ".123",
-			want:  "^\\.123$",
-		},
-		{
-			input: "*.go",
-			want:  "^[^/]*?\\.go$",
-		},
-		{
-			input: "h[a-z]llo",
-			want:  "^h[a-z]llo$",
-		},
-		{
-			input: "h[!a-z]llo",
-			want:  "^h[^a-z]llo$",
-		},
-		{
-			input: "h[!abcde]llo",
-			want:  "^h[^abcde]llo$",
-		},
-		{
-			input: "h[]-]llo",
-			want:  "^h[]-]llo$",
-		},
-		{
-			input: "h\\[llo",
-			want:  "^h\\[llo$",
-		},
-		{
-			input: "h\\*llo",
-			want:  "^h\\*llo$",
-		},
-		{
-			input: "h\\?llo",
-			want:  "^h\\?llo$",
-		},
-		{
-			input: "fo[a-z]baz",
-			want:  "^fo[a-z]baz$",
-		},
-		{
-			input: "foo/**",
-			want:  "^foo/.*?$",
-		},
-		{
-			input: "[a-z0-9]",
-			want:  "^[a-z0-9]$",
-		},
-		{
-			input: "[abc-]",
-			want:  "^[abc-]$",
-		},
-		{
-			input: "[--0]",
-			want:  "^[--0]$",
-		},
-		{
-			input: "",
-			want:  "",
-		},
-		{
-			input: "[!a]",
-			want:  "^[^a]$",
-		},
-		{
-			input: "fo[a-b-c]",
-			want:  "^fo[a-b-c]$",
-		},
-		{
-			input: "[a-z--0]",
-			want:  "^[a-z--0]$",
-		},
-		{
-			input: "[^ab]",
-			want:  "^[//^ab]$",
-		},
-		{
-			input: "[^-z]",
-			want:  "^[//^-z]$",
-		},
-		{
-			input: "[a^b]",
-			want:  "^[a^b]$",
-		},
-		{
-			input: "[ab^]",
-			want:  "^[ab^]$",
-		},
-	}
-
-	for _, c := range cases {
-		t.Run(c.input, func(t *testing.T) {
-			got, err := globToRegex(c.input)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if diff := cmp.Diff(c.want, got); diff != "" {
-				t.Fatal(diff)
-			}
-
-			if _, err := regexp.Compile(got); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestTranslateBadGlobPattern(t *testing.T) {
-	cases := []struct {
-		input string
-	}{
-		{input: "fo\\o"},
-		{input: "fo[o"},
-		{input: "[z-a]"},
-		{input: "0[0300z0_0]\\"},
-		{input: "[!]"},
-		{input: "0["},
-		{input: "[]"},
-	}
-	for _, c := range cases {
-		t.Run(c.input, func(t *testing.T) {
-			_, err := globToRegex(c.input)
-			if diff := cmp.Diff(ErrBadGlobPattern.Error(), err.Error()); diff != "" {
-				t.Fatal(diff)
-			}
-		})
-	}
-}
-
-func TestReporevToRegex(t *testing.T) {
-	tests := []struct {
-		name string
-		arg  string
-		want string
-	}{
-		{
-			name: "starting with github.com, no revision",
-			arg:  "github.com/foo",
-			want: "^github\\.com/foo.*?$",
-		},
-		{
-			name: "starting with github.com, with revision",
-			arg:  "github.com/foo@bar",
-			want: "^github\\.com/foo$@bar",
-		},
-		{
-			name: "starting with foo.com, no revision",
-			arg:  "foo.com/bar",
-			want: "^.*?foo\\.com/bar.*?$",
-		},
-		{
-			name: "empty string",
-			arg:  "",
-			want: "",
-		},
-		{
-			name: "many @",
-			arg:  "foo@bar@bas",
-			want: "^foo$@bar@bas",
-		},
-		{
-			name: "just @",
-			arg:  "@",
-			want: "@",
-		},
-		{
-			name: "fuzzy repo",
-			arg:  "sourcegraph",
-			want: "^.*?sourcegraph.*?$",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := reporevToRegex(tt.arg)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != tt.want {
-				t.Fatalf("reporevToRegex() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestContainsNoGlobSyntax(t *testing.T) {
-	tests := []struct {
-		in   string
-		want bool
-	}{
-		{
-			in:   "foo",
-			want: true,
-		},
-		{
-			in:   "foo.bar",
-			want: true,
-		},
-		{
-			in:   "/foo.bar",
-			want: true,
-		},
-		{
-			in:   "path/to/file/foo.bar",
-			want: true,
-		},
-		{
-			in:   "github.com/org/repo",
-			want: true,
-		},
-		{
-			in:   "foo**",
-			want: false,
-		},
-		{
-			in:   "**foo",
-			want: false,
-		},
-		{
-			in:   "**foo**",
-			want: false,
-		},
-		{
-			in:   "*foo*",
-			want: false,
-		},
-		{
-			in:   "foo?",
-			want: false,
-		},
-		{
-			in:   "fo?o",
-			want: false,
-		},
-		{
-			in:   "fo[o]bar",
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
-			if got := ContainsNoGlobSyntax(tt.in); got != tt.want {
-				t.Errorf("ContainsNoGlobSyntax() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestFuzzifyGlobPattern(t *testing.T) {
-	tests := []struct {
-		in   string
-		want string
-	}{
-		{
-			in:   "foo",
-			want: "**foo**",
-		},
-		{
-			in:   "sourcegraph/sourcegraph",
-			want: "**sourcegraph/sourcegraph**",
-		},
-		{
-			in:   "",
-			want: "",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
-			if got := fuzzifyGlobPattern(tt.in); got != tt.want {
-				t.Errorf("fuzzifyGlobPattern() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMapGlobToRegex(t *testing.T) {
-	cases := []struct {
-		input string
-		want  string
-	}{
-		{
-			input: "repo:sourcegraph",
-			want:  `"repo:^.*?sourcegraph.*?$"`,
-		},
-		{
-			input: "repo:sourcegraph@commit-id",
-			want:  `"repo:^sourcegraph$@commit-id"`,
-		},
-		{
-			input: "repo:github.com/sourcegraph",
-			want:  `"repo:^github\\.com/sourcegraph.*?$"`,
-		},
-		{
-			input: "repo:github.com/sourcegraph/sourcegraph@v3.18.0",
-			want:  `"repo:^github\\.com/sourcegraph/sourcegraph$@v3.18.0"`,
-		},
-		{
-			input: "github.com/foo/bar",
-			want:  `"github.com/foo/bar"`,
-		},
-		{
-			input: "repo:**sourcegraph",
-			want:  `"repo:^.*?sourcegraph$"`,
-		},
-		{
-			input: "file:**foo.bar",
-			want:  `"file:^.*?foo\\.bar$"`,
-		},
-		{
-			input: "file:afile file:bfile file:**cfile",
-			want:  `(and "file:^.*?afile.*?$" "file:^.*?bfile.*?$" "file:^.*?cfile$")`,
-		},
-		{
-			input: "file:afile file:dir1/bfile",
-			want:  `(and "file:^.*?afile.*?$" "file:^.*?dir1/bfile.*?$")`,
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.input, func(t *testing.T) {
-			query, _ := Parse(c.input, SearchTypeRegex)
-			regexQuery, _ := Globbing(query)
-			got := toString(regexQuery)
-			if diff := cmp.Diff(c.want, got); diff != "" {
-				t.Fatal(diff)
-			}
-		})
-	}
-}
-
 func TestConcatRevFilters(t *testing.T) {
 	cases := []struct {
 		input string
@@ -900,6 +454,10 @@ func TestConcatRevFilters(t *testing.T) {
 		{
 			input: "repo:foo file:bas qux AND (rev:a or rev:b)",
 			want:  `("repo:foo@a" "file:bas" "qux") OR ("repo:foo@b" "file:bas" "qux")`,
+		},
+		{
+			input: "repo:foo rev:4.2.1 repo:has.file(content:fix)",
+			want:  `("repo:foo@4.2.1" "repo:has.file(content:fix)")`,
 		},
 	}
 	for _, c := range cases {
@@ -954,19 +512,19 @@ func TestQueryField(t *testing.T) {
 		return OmitField(q, field)
 	}
 
-	autogold.Want("omit repo", "pattern").Equal(t, test("repo:stuff pattern", "repo"))
-	autogold.Want("omit repo alias", "alias-pattern").Equal(t, test("r:stuff alias-pattern", "repo"))
+	autogold.Expect("pattern").Equal(t, test("repo:stuff pattern", "repo"))
+	autogold.Expect("alias-pattern").Equal(t, test("r:stuff alias-pattern", "repo"))
 }
 
 func TestSubstituteCountAll(t *testing.T) {
 	test := func(input string) string {
-		query, _ := Parse(input, SearchTypeLiteralDefault)
+		query, _ := Parse(input, SearchTypeLiteral)
 		q := SubstituteCountAll(query)
 		return toString(q)
 	}
 
-	autogold.Want("all", `(and "count:99999999" "foo")`).Equal(t, test("foo count:all"))
-	autogold.Want("ALL", `(and "count:99999999" "foo")`).Equal(t, test("foo count:ALL"))
-	autogold.Want("with integer count", `(and "count:3" "foo")`).Equal(t, test("foo count:3"))
-	autogold.Want("subexpressions", `(or (and "count:3" "foo") (and "count:99999999" "bar"))`).Equal(t, test("(foo count:3) or (bar count:all)"))
+	autogold.Expect(`(and "count:99999999" "foo")`).Equal(t, test("foo count:all"))
+	autogold.Expect(`(and "count:99999999" "foo")`).Equal(t, test("foo count:ALL"))
+	autogold.Expect(`(and "count:3" "foo")`).Equal(t, test("foo count:3"))
+	autogold.Expect(`(or (and "count:3" "foo") (and "count:99999999" "bar"))`).Equal(t, test("(foo count:3) or (bar count:all)"))
 }

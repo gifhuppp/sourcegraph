@@ -1,6 +1,6 @@
 import { isErrorLike } from '@sourcegraph/common'
-import { Settings } from '@sourcegraph/shared/src/schema/settings.schema'
-import { SettingsCascadeOrError } from '@sourcegraph/shared/src/settings/settings'
+import type { Settings } from '@sourcegraph/shared/src/schema/settings.schema'
+import type { SettingsCascadeOrError } from '@sourcegraph/shared/src/settings/settings'
 
 /**
  * Utility for checking if a user has the experimental feature, batch change server-side
@@ -10,7 +10,7 @@ export const isBatchChangesExecutionEnabled = (settingsCascade: SettingsCascadeO
     Boolean(
         settingsCascade.final !== null &&
             !isErrorLike(settingsCascade.final) &&
-            settingsCascade.final.experimentalFeatures?.batchChangesExecution
+            settingsCascade.final.experimentalFeatures?.batchChangesExecution !== false
     )
 
 /**

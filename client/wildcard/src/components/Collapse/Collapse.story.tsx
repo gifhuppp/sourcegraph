@@ -1,21 +1,18 @@
 import { useCallback, useState } from 'react'
 
-import { DecoratorFn, Meta, Story } from '@storybook/react'
-import ChevronDownIcon from 'mdi-react/ChevronDownIcon'
-import ChevronLeftIcon from 'mdi-react/ChevronLeftIcon'
-
-import { BrandedStory } from '@sourcegraph/branded/src/components/BrandedStory'
-import webStyles from '@sourcegraph/web/src/SourcegraphWebApp.scss'
+import { mdiChevronDown, mdiChevronLeft } from '@mdi/js'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 
 import { H2 } from '..'
+import { BrandedStory } from '../../stories/BrandedStory'
 import { Button } from '../Button'
 import { Input } from '../Form'
 import { Icon } from '../Icon'
 
 import { Collapse, CollapseHeader, CollapsePanel } from './Collapse'
 
-const decorator: DecoratorFn = story => (
-    <BrandedStory styles={webStyles}>{() => <div className="container mt-3">{story()}</div>}</BrandedStory>
+const decorator: Decorator = story => (
+    <BrandedStory>{() => <div className="container mt-3">{story()}</div>}</BrandedStory>
 )
 
 const config: Meta = {
@@ -27,7 +24,7 @@ const config: Meta = {
 
 export default config
 
-export const Simple: Story = () => {
+export const Simple: StoryFn = () => {
     const [isOpened, setIsOpened] = useState(false)
 
     const handleOpenChange = useCallback((next: boolean) => {
@@ -40,12 +37,7 @@ export const Simple: Story = () => {
             <Collapse isOpen={isOpened} onOpenChange={handleOpenChange}>
                 <CollapseHeader as={Button} outline={true} focusLocked={true} variant="secondary" className="w-50">
                     Collapsable
-                    <Icon
-                        role="img"
-                        aria-hidden={true}
-                        as={isOpened ? ChevronDownIcon : ChevronLeftIcon}
-                        className="mr-1"
-                    />
+                    <Icon aria-hidden={true} svgPath={isOpened ? mdiChevronDown : mdiChevronLeft} className="mr-1" />
                 </CollapseHeader>
                 <CollapsePanel className="w-50">
                     <Input placeholder="testing this one" />
@@ -65,9 +57,8 @@ export const Simple: Story = () => {
                         >
                             Collapsable
                             <Icon
-                                role="img"
                                 aria-hidden={true}
-                                as={isOpen ? ChevronDownIcon : ChevronLeftIcon}
+                                svgPath={isOpen ? mdiChevronDown : mdiChevronLeft}
                                 className="mr-1"
                             />
                         </CollapseHeader>
@@ -91,13 +82,37 @@ export const Simple: Story = () => {
                         >
                             Collapsable
                             <Icon
-                                role="img"
                                 aria-hidden={true}
-                                as={isOpen ? ChevronDownIcon : ChevronLeftIcon}
+                                svgPath={isOpen ? mdiChevronDown : mdiChevronLeft}
                                 className="mr-1"
                             />
                         </CollapseHeader>
                         <CollapsePanel className="w-50">
+                            <Input placeholder="testing this one" />
+                        </CollapsePanel>
+                    </>
+                )}
+            </Collapse>
+
+            <H2 className="my-3">Without forced CollapsePanel rendering</H2>
+            <Collapse>
+                {({ isOpen }) => (
+                    <>
+                        <CollapseHeader
+                            as={Button}
+                            aria-label={isOpen ? 'Expand' : 'Collapse'}
+                            outline={true}
+                            variant="secondary"
+                            className="w-50"
+                        >
+                            Collapsable
+                            <Icon
+                                aria-hidden={true}
+                                svgPath={isOpen ? mdiChevronDown : mdiChevronLeft}
+                                className="mr-1"
+                            />
+                        </CollapseHeader>
+                        <CollapsePanel forcedRender={false} className="w-50">
                             <Input placeholder="testing this one" />
                         </CollapsePanel>
                     </>

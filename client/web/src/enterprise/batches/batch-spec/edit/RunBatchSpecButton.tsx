@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
 
-import VisuallyHidden from '@reach/visually-hidden'
-import ChevronDownIcon from 'mdi-react/ChevronDownIcon'
-import InfoCircleOutlineIcon from 'mdi-react/InfoCircleOutlineIcon'
+import { mdiInformationOutline, mdiChevronDown } from '@mdi/js'
+import { VisuallyHidden } from '@reach/visually-hidden'
 import { animated } from 'react-spring'
 
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
 import {
     Button,
     Checkbox,
@@ -17,13 +18,14 @@ import {
     Icon,
     H3,
     Text,
+    Tooltip,
 } from '@sourcegraph/wildcard'
 
-import { ExecutionOptions } from '../BatchSpecContext'
+import type { ExecutionOptions } from '../BatchSpecContext'
 
 import styles from './RunBatchSpecButton.module.scss'
 
-interface RunBatchSpecButtonProps {
+interface RunBatchSpecButtonProps extends TelemetryV2Props {
     execute: () => void
     /**
      * Whether or not the button should be disabled. An optional tooltip string to display
@@ -39,6 +41,7 @@ export const RunBatchSpecButton: React.FunctionComponent<React.PropsWithChildren
     isExecutionDisabled = false,
     options,
     onChangeOptions,
+    telemetryRecorder,
 }) => {
     const [isOpen, setIsOpen] = useState(false)
 
@@ -48,28 +51,34 @@ export const RunBatchSpecButton: React.FunctionComponent<React.PropsWithChildren
         // similarly to a native dropdown selector.
         <Popover isOpen={isOpen} onOpenChange={event => setIsOpen(event.isOpen)}>
             <ButtonGroup className="mb-2">
-                <Button
-                    variant="primary"
-                    onClick={execute}
-                    disabled={!!isExecutionDisabled}
-                    data-tooltip={typeof isExecutionDisabled === 'string' ? isExecutionDisabled : undefined}
-                >
-                    Run batch spec
-                </Button>
+                <Tooltip content={typeof isExecutionDisabled === 'string' ? isExecutionDisabled : undefined}>
+                    <Button
+                        variant="primary"
+                        onClick={() => {
+                            execute()
+                            EVENT_LOGGER.log('batch_change_editor:run_batch_spec:clicked')
+                            telemetryRecorder.recordEvent('batchChange.editor.runSpec', 'click')
+                        }}
+                        aria-label={typeof isExecutionDisabled === 'string' ? isExecutionDisabled : undefined}
+                        disabled={!!isExecutionDisabled}
+                    >
+                        Run batch spec
+                    </Button>
+                </Tooltip>
                 <PopoverTrigger
                     as={Button}
                     variant="primary"
                     type="button"
                     className={styles.executionOptionsMenuButton}
                 >
-                    <ChevronDownIcon />
+                    <Icon svgPath={mdiChevronDown} inline={false} aria-hidden={true} />
                     <VisuallyHidden>Options</VisuallyHidden>
                 </PopoverTrigger>
             </ButtonGroup>
 
             <PopoverContent className={styles.menuList} position={Position.bottomEnd}>
                 <H3 className="pb-2 pt-3 pl-3 pr-3 m-0">Execution options</H3>
-                <ExecutionOption moreInfo="When this batch spec is executed, it will not use cached results from any previous execution.">
+                <ExecutionOption moreInfo="Toggle to run workspace executions even if cache entries exist.">
                     <Checkbox
                         name="run-without-cache"
                         id="run-without-cache"
@@ -106,17 +115,18 @@ const ExecutionOption: React.FunctionComponent<React.PropsWithChildren<Execution
     const [infoReference, infoOpen, setInfoOpen, infoStyle] = useAccordion<HTMLParagraphElement>()
 
     const info = props.disabled ? (
-        <Icon
-            role="img"
-            className="ml-2"
-            data-tooltip={props.disabledTooltip}
-            aria-label={props.disabledTooltip}
-            tabIndex={0}
-            as={InfoCircleOutlineIcon}
-        />
+        <Tooltip content={props.disabledTooltip}>
+            <Icon
+                aria-label={props.disabledTooltip}
+                className="ml-2"
+                role="button"
+                tabIndex={0}
+                svgPath={mdiInformationOutline}
+            />
+        </Tooltip>
     ) : props.moreInfo ? (
         <Button className="m-0 ml-2 p-0 border-0" onClick={() => setInfoOpen(!infoOpen)}>
-            <Icon role="img" aria-hidden={true} as={InfoCircleOutlineIcon} />
+            <Icon aria-hidden={true} svgPath={mdiInformationOutline} />
 
             <VisuallyHidden>More info</VisuallyHidden>
         </Button>

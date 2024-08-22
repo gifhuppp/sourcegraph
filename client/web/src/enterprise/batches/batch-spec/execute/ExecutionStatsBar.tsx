@@ -1,39 +1,46 @@
-import AlertCircleIcon from 'mdi-react/AlertCircleIcon'
-import CheckBoldIcon from 'mdi-react/CheckBoldIcon'
-import CircleOffOutlineIcon from 'mdi-react/CircleOffOutlineIcon'
-import TimelineClockOutlineIcon from 'mdi-react/TimelineClockOutlineIcon'
-import TimerSandIcon from 'mdi-react/TimerSandIcon'
+import { mdiAlertCircle, mdiCheckBold, mdiTimerSand, mdiTimelineClockOutline, mdiCircleOffOutline } from '@mdi/js'
+import { VisuallyHidden } from '@reach/visually-hidden'
 
 import { pluralize } from '@sourcegraph/common'
-import { Icon } from '@sourcegraph/wildcard'
+import { Icon, H3 } from '@sourcegraph/wildcard'
 
-import { BatchSpecWorkspaceStats } from '../../../../graphql-operations'
+import type { BatchSpecWorkspaceStats } from '../../../../graphql-operations'
 
 import styles from './ExecutionStatsBar.module.scss'
 
 export const ExecutionStatsBar: React.FunctionComponent<React.PropsWithChildren<BatchSpecWorkspaceStats>> = stats => (
-    <div className="d-flex align-items-center">
+    <>
         <ExecutionStat>
-            <Icon role="img" aria-hidden={true} as={AlertCircleIcon} className="text-danger" />
-            {stats.errored} {pluralize('error', stats.errored)}
+            <Icon aria-hidden={true} className="text-danger" svgPath={mdiAlertCircle} />
+            <H3 className={styles.label}>
+                {stats.errored} <VisuallyHidden>workspace</VisuallyHidden> {pluralize('error', stats.errored)}
+            </H3>
         </ExecutionStat>
         <ExecutionStat>
-            <Icon role="img" aria-hidden={true} as={CheckBoldIcon} className="text-success" />
-            {stats.completed} complete
+            <Icon aria-hidden={true} className="text-success" svgPath={mdiCheckBold} />
+            <H3 className={styles.label}>
+                {stats.completed} <VisuallyHidden>{pluralize('workspace', stats.completed)}</VisuallyHidden> complete
+            </H3>
         </ExecutionStat>
         <ExecutionStat>
-            <Icon role="img" aria-hidden={true} as={TimerSandIcon} />
-            {stats.processing} working
+            <Icon aria-hidden={true} svgPath={mdiTimerSand} />
+            <H3 className={styles.label}>
+                {stats.processing} <VisuallyHidden>{pluralize('workspace', stats.processing)}</VisuallyHidden> working
+            </H3>
         </ExecutionStat>
         <ExecutionStat>
-            <Icon role="img" aria-hidden={true} as={TimelineClockOutlineIcon} />
-            {stats.queued} queued
+            <Icon aria-hidden={true} svgPath={mdiTimelineClockOutline} />
+            <H3 className={styles.label}>
+                {stats.queued} <VisuallyHidden>{pluralize('workspace', stats.queued)}</VisuallyHidden> queued
+            </H3>
         </ExecutionStat>
         <ExecutionStat>
-            <Icon role="img" aria-hidden={true} as={CircleOffOutlineIcon} />
-            {stats.ignored} ignored
+            <Icon aria-hidden={true} svgPath={mdiCircleOffOutline} />
+            <H3 className={styles.label}>
+                {stats.ignored} <VisuallyHidden>{pluralize('workspace', stats.ignored)}</VisuallyHidden> ignored
+            </H3>
         </ExecutionStat>
-    </div>
+    </>
 )
 
 export const ExecutionStat: React.FunctionComponent<React.PropsWithChildren<{}>> = ({ children }) => (

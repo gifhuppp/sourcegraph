@@ -1,31 +1,24 @@
-import React, { useMemo, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 
+import { mdiPlus } from '@mdi/js'
 import classNames from 'classnames'
-import PlusIcon from 'mdi-react/PlusIcon'
+import { useLocation, useNavigate, type Location, type NavigateFunction } from 'react-router-dom'
 import { of } from 'rxjs'
-import { catchError, map, startWith } from 'rxjs/operators'
+import { catchError, map } from 'rxjs/operators'
 
 import { asError, isErrorLike } from '@sourcegraph/common'
-import { Settings } from '@sourcegraph/shared/src/schema/settings.schema'
-import { SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
-import {
-    PageHeader,
-    LoadingSpinner,
-    useObservable,
-    Button,
-    Link,
-    ProductStatusBadge,
-    Icon,
-} from '@sourcegraph/wildcard'
+import type { Settings } from '@sourcegraph/shared/src/schema/settings.schema'
+import type { SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
+import { Button, ButtonLink, Icon, Link, LoadingSpinner, PageHeader, useObservable } from '@sourcegraph/wildcard'
 
-import { AuthenticatedUser } from '../../auth'
+import type { AuthenticatedUser } from '../../auth'
 import { CodeMonitoringLogo } from '../../code-monitoring/CodeMonitoringLogo'
 import { PageTitle } from '../../components/PageTitle'
-import { useExperimentalFeatures } from '../../stores'
-import { eventLogger } from '../../tracking/eventLogger'
 
 import {
+    fetchCodeMonitors as _fetchCodeMonitors,
     fetchUserCodeMonitors as _fetchUserCodeMonitors,
     toggleCodeMonitorEnabled as _toggleCodeMonitorEnabled,
 } from './backend'
@@ -33,11 +26,42 @@ import { CodeMonitoringGettingStarted } from './CodeMonitoringGettingStarted'
 import { CodeMonitoringLogs } from './CodeMonitoringLogs'
 import { CodeMonitorList } from './CodeMonitorList'
 
-export interface CodeMonitoringPageProps extends SettingsCascadeProps<Settings>, ThemeProps {
+type MonitorsTab = 'list' | 'getting-started' | 'logs'
+type Tabs = { tab: MonitorsTab; title: string; isActive: boolean }[]
+
+function getSelectedTabFromLocation(
+    locationSearch: string,
+    userHasCodeMonitors: boolean | Error | undefined
+): MonitorsTab {
+    const urlParameters = new URLSearchParams(locationSearch)
+    switch (urlParameters.get('tab')) {
+        case 'list': {
+            return 'list'
+        }
+        case 'getting-started': {
+            return 'getting-started'
+        }
+        case 'logs': {
+            return 'logs'
+        }
+    }
+
+    return userHasCodeMonitors ? 'list' : 'getting-started'
+}
+
+function setSelectedLocationTab(location: Location, navigate: NavigateFunction, selectedTab: MonitorsTab): void {
+    const urlParameters = new URLSearchParams(location.search)
+    urlParameters.set('tab', selectedTab)
+    if (location.search !== urlParameters.toString()) {
+        navigate({ ...location, search: urlParameters.toString() }, { replace: true })
+    }
+}
+
+export interface CodeMonitoringPageProps extends SettingsCascadeProps<Settings>, TelemetryV2Props {
     authenticatedUser: AuthenticatedUser | null
     fetchUserCodeMonitors?: typeof _fetchUserCodeMonitors
+    fetchCodeMonitors?: typeof _fetchCodeMonitors
     toggleCodeMonitorEnabled?: typeof _toggleCodeMonitorEnabled
-
     // For testing purposes only
     testForceTab?: 'list' | 'getting-started' | 'logs'
 }
@@ -45,14 +69,11 @@ export interface CodeMonitoringPageProps extends SettingsCascadeProps<Settings>,
 export const CodeMonitoringPage: React.FunctionComponent<React.PropsWithChildren<CodeMonitoringPageProps>> = ({
     authenticatedUser,
     fetchUserCodeMonitors = _fetchUserCodeMonitors,
+    fetchCodeMonitors = _fetchCodeMonitors,
     toggleCodeMonitorEnabled = _toggleCodeMonitorEnabled,
-    isLightTheme,
     testForceTab,
+    telemetryRecorder,
 }) => {
-    useEffect(() => eventLogger.logViewEvent('CodeMonitoringPage'), [])
-
-    const LOADING = 'loading' as const
-
     const userHasCodeMonitors = useObservable(
         useMemo(
             () =>
@@ -63,7 +84,6 @@ export const CodeMonitoringPage: React.FunctionComponent<React.PropsWithChildren
                           after: null,
                       }).pipe(
                           map(monitors => monitors.nodes.length > 0),
-                          startWith(LOADING),
                           catchError(error => [asError(error)])
                       )
                     : of(false),
@@ -71,25 +91,72 @@ export const CodeMonitoringPage: React.FunctionComponent<React.PropsWithChildren
         )
     )
 
-    const [currentTab, setCurrentTab] = useState<'list' | 'getting-started' | 'logs'>('list')
+    const navigate = useNavigate()
+    const location = useLocation()
 
-    // If user has no code monitors, default to the getting started tab after loading
-    useEffect(() => {
-        if (userHasCodeMonitors === false) {
-            setCurrentTab('getting-started')
-        }
-    }, [userHasCodeMonitors])
+    const [currentTab, setCurrentTab] = useState<MonitorsTab>(() =>
+        getSelectedTabFromLocation(location.search, userHasCodeMonitors)
+    )
+
+    const onSelectTab = useCallback(
+        (tab: MonitorsTab) => {
+            setCurrentTab(tab)
+            setSelectedLocationTab(location, navigate, tab)
+        },
+        [navigate, location, setCurrentTab]
+    )
 
     // Force tab for testing
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (testForceTab && testForceTab !== currentTab) {
             setCurrentTab(testForceTab)
         }
     }, [currentTab, testForceTab])
 
-    const showList = userHasCodeMonitors !== 'loading' && !isErrorLike(userHasCodeMonitors) && currentTab === 'list'
+    // Log page view of selected tab
+    useEffect(() => {
+        if (userHasCodeMonitors !== undefined) {
+            switch (currentTab) {
+                case 'getting-started': {
+                    EVENT_LOGGER.logPageView('CodeMonitoringGettingStartedPage')
+                    telemetryRecorder.recordEvent('codeMonitor.gettingStarted', 'view')
+                    break
+                }
+                case 'logs': {
+                    EVENT_LOGGER.logPageView('CodeMonitoringLogsPage')
+                    telemetryRecorder.recordEvent('codeMonitor.logs', 'view')
+                    break
+                }
+                case 'list': {
+                    EVENT_LOGGER.logPageView('CodeMonitoringPage')
+                    telemetryRecorder.recordEvent('codeMonitor.list', 'view')
+                }
+            }
+        }
+    }, [currentTab, userHasCodeMonitors, telemetryRecorder])
 
-    const showLogsTab = useExperimentalFeatures(features => features.showCodeMonitoringLogs)
+    const showList = userHasCodeMonitors !== undefined && !isErrorLike(userHasCodeMonitors) && currentTab === 'list'
+
+    const tabs: Tabs = useMemo(
+        () => [
+            {
+                tab: 'list',
+                title: 'Code monitors',
+                isActive: currentTab === 'list',
+            },
+            {
+                tab: 'getting-started',
+                title: 'Getting started',
+                isActive: currentTab === 'getting-started',
+            },
+            {
+                tab: 'logs',
+                title: 'Logs',
+                isActive: currentTab === 'logs',
+            },
+        ],
+        [currentTab]
+    )
 
     return (
         <div className="code-monitoring-page" data-testid="code-monitoring-page">
@@ -98,19 +165,12 @@ export const CodeMonitoringPage: React.FunctionComponent<React.PropsWithChildren
                 actions={
                     authenticatedUser && (
                         <Button to="/code-monitoring/new" variant="primary" as={Link}>
-                            <Icon role="img" as={PlusIcon} aria-hidden={true} /> Create code monitor
+                            <Icon aria-hidden={true} svgPath={mdiPlus} /> Create a code monitor
                         </Button>
                     )
                 }
                 description={
-                    userHasCodeMonitors &&
-                    userHasCodeMonitors !== 'loading' &&
-                    !isErrorLike(userHasCodeMonitors) && (
-                        <>
-                            Watch your code for changes and trigger actions to get notifications, send webhooks, and
-                            more.
-                        </>
-                    )
+                    <>Watch your code for changes and trigger actions to get notifications, send webhooks, and more.</>
                 }
                 className="mb-3"
             >
@@ -119,68 +179,35 @@ export const CodeMonitoringPage: React.FunctionComponent<React.PropsWithChildren
                 </PageHeader.Heading>
             </PageHeader>
 
-            {userHasCodeMonitors === 'loading' ? (
+            {userHasCodeMonitors === undefined ? (
                 <LoadingSpinner inline={false} />
             ) : (
                 <div className="d-flex flex-column">
                     <div className="code-monitoring-page-tabs mb-4">
                         <div className="nav nav-tabs">
-                            <div className="nav-item">
-                                {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
-                                <Link
-                                    to=""
-                                    onClick={event => {
-                                        event.preventDefault()
-                                        setCurrentTab('list')
-                                    }}
-                                    className={classNames('nav-link', currentTab === 'list' && 'active')}
-                                    role="button"
-                                >
-                                    <span className="text-content" data-tab-content="Code monitors">
-                                        Code monitors
-                                    </span>
-                                </Link>
-                            </div>
-                            <div className="nav-item">
-                                {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
-                                <Link
-                                    to=""
-                                    onClick={event => {
-                                        event.preventDefault()
-                                        setCurrentTab('getting-started')
-                                    }}
-                                    className={classNames('nav-link', currentTab === 'getting-started' && 'active')}
-                                    role="button"
-                                >
-                                    <span className="text-content" data-tab-content="Getting started">
-                                        Getting started
-                                    </span>
-                                </Link>
-                            </div>
-                            {showLogsTab && (
-                                <div className="nav-item">
-                                    {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
-                                    <Link
+                            {tabs.map(({ tab, title, isActive }) => (
+                                <div className="nav-item" key={tab}>
+                                    <ButtonLink
                                         to=""
-                                        onClick={event => {
-                                            event.preventDefault()
-                                            setCurrentTab('logs')
-                                        }}
-                                        className={classNames('nav-link flex-row', currentTab === 'logs' && 'active')}
                                         role="button"
+                                        onSelect={event => {
+                                            event.preventDefault()
+                                            onSelectTab(tab)
+                                        }}
+                                        className={classNames('nav-link', isActive && 'active')}
                                     >
-                                        <span className="text-content" data-tab-content="Logs">
-                                            Logs
-                                        </span>
-                                        <ProductStatusBadge status="beta" className="ml-2" />
-                                    </Link>
+                                        <span>{title}</span>
+                                    </ButtonLink>
                                 </div>
-                            )}
+                            ))}
                         </div>
                     </div>
 
                     {currentTab === 'getting-started' && (
-                        <CodeMonitoringGettingStarted isLightTheme={isLightTheme} isSignedIn={!!authenticatedUser} />
+                        <CodeMonitoringGettingStarted
+                            authenticatedUser={authenticatedUser}
+                            telemetryRecorder={telemetryRecorder}
+                        />
                     )}
 
                     {currentTab === 'logs' && <CodeMonitoringLogs />}
@@ -189,7 +216,9 @@ export const CodeMonitoringPage: React.FunctionComponent<React.PropsWithChildren
                         <CodeMonitorList
                             authenticatedUser={authenticatedUser}
                             fetchUserCodeMonitors={fetchUserCodeMonitors}
+                            fetchCodeMonitors={fetchCodeMonitors}
                             toggleCodeMonitorEnabled={toggleCodeMonitorEnabled}
+                            telemetryRecorder={telemetryRecorder}
                         />
                     )}
                 </div>

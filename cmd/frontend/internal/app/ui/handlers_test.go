@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -11,38 +12,50 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/sourcegraph/sourcegraph/cmd/frontend/backend"
-	"github.com/sourcegraph/sourcegraph/cmd/frontend/envvar"
-	"github.com/sourcegraph/sourcegraph/cmd/frontend/globals"
 	uirouter "github.com/sourcegraph/sourcegraph/cmd/frontend/internal/app/ui/router"
-	"github.com/sourcegraph/sourcegraph/cmd/frontend/internal/siteid"
+	"github.com/sourcegraph/sourcegraph/cmd/frontend/internal/backend"
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/database"
+	"github.com/sourcegraph/sourcegraph/internal/database/dbmocks"
+	"github.com/sourcegraph/sourcegraph/internal/dotcom"
+	"github.com/sourcegraph/sourcegraph/internal/extsvc"
+	"github.com/sourcegraph/sourcegraph/internal/fileutil"
+	"github.com/sourcegraph/sourcegraph/internal/gitserver"
 	"github.com/sourcegraph/sourcegraph/internal/gitserver/gitdomain"
 	"github.com/sourcegraph/sourcegraph/internal/repoupdater"
 	"github.com/sourcegraph/sourcegraph/internal/types"
-	"github.com/sourcegraph/sourcegraph/internal/vcs/git"
-	"github.com/sourcegraph/sourcegraph/internal/vcs/util"
+	"github.com/sourcegraph/sourcegraph/schema"
 	"github.com/sourcegraph/sourcegraph/ui/assets"
 )
 
 func TestRedirects(t *testing.T) {
-	assets.MockLoadWebpackManifest = func() (*assets.WebpackManifest, error) {
-		return &assets.WebpackManifest{}, nil
+	assets.UseDevAssetsProvider()
+	assets.MockLoadWebBuildManifest = func() (*assets.WebBuildManifest, error) {
+		return &assets.WebBuildManifest{}, nil
 	}
-	defer func() { assets.MockLoadWebpackManifest = nil }()
+	defer func() { assets.MockLoadWebBuildManifest = nil }()
 
 	check := func(t *testing.T, path string, wantStatusCode int, wantRedirectLocation, userAgent string) {
 		t.Helper()
 
-		gss := database.NewMockGlobalStateStore()
-		gss.GetFunc.SetDefaultReturn(&database.GlobalState{SiteID: "a"}, nil)
+		gss := dbmocks.NewMockGlobalStateStore()
+		gss.GetFunc.SetDefaultReturn(database.GlobalState{SiteID: "a"}, nil)
 
-		db := database.NewMockDB()
+		users := dbmocks.NewMockUserStore()
+		users.GetByCurrentAuthUserFunc.SetDefaultReturn(&types.User{ID: 1, SiteAdmin: true}, nil)
+		extSvcs := dbmocks.NewMockExternalServiceStore()
+		extSvcs.CountFunc.SetDefaultReturn(0, nil)
+		repoStatistics := dbmocks.NewMockRepoStatisticsStore()
+		repoStatistics.GetRepoStatisticsFunc.SetDefaultReturn(database.RepoStatistics{Total: 1}, nil)
+
+		db := dbmocks.NewMockDB()
 		db.GlobalStateFunc.SetDefaultReturn(gss)
+		db.UsersFunc.SetDefaultReturn(users)
+		db.ExternalServicesFunc.SetDefaultReturn(extSvcs)
+		db.RepoStatisticsFunc.SetDefaultReturn(repoStatistics)
 
-		InitRouter(db, nil)
+		InitRouter(db, conf.NewServer(nil))
 		rw := httptest.NewRecorder()
 		req, err := http.NewRequest("GET", path, nil)
 		if err != nil {
@@ -60,27 +73,24 @@ func TestRedirects(t *testing.T) {
 	}
 
 	t.Run("on Sourcegraph.com", func(t *testing.T) {
-		orig := envvar.SourcegraphDotComMode()
-		envvar.MockSourcegraphDotComMode(true)
-		defer envvar.MockSourcegraphDotComMode(orig) // reset
+		dotcom.MockSourcegraphDotComMode(t, true)
+
 		t.Run("root", func(t *testing.T) {
-			check(t, "/", http.StatusTemporaryRedirect, "https://about.sourcegraph.com", "Mozilla/5.0")
+			check(t, "/", http.StatusTemporaryRedirect, "/search", "Mozilla/5.0")
 		})
 	})
 
 	t.Run("on Sourcegraph.com from Cookiebot", func(t *testing.T) {
-		orig := envvar.SourcegraphDotComMode()
-		envvar.MockSourcegraphDotComMode(true)
-		defer envvar.MockSourcegraphDotComMode(orig) // reset
+		dotcom.MockSourcegraphDotComMode(t, true)
+
 		t.Run("root", func(t *testing.T) {
 			check(t, "/", http.StatusTemporaryRedirect, "/search", "Mozilla/5.0 Cookiebot")
 		})
 	})
 
 	t.Run("non-Sourcegraph.com", func(t *testing.T) {
-		orig := envvar.SourcegraphDotComMode()
-		envvar.MockSourcegraphDotComMode(false)
-		defer envvar.MockSourcegraphDotComMode(orig) // reset
+		dotcom.MockSourcegraphDotComMode(t, false)
+
 		t.Run("root", func(t *testing.T) {
 			check(t, "/", http.StatusTemporaryRedirect, "/search", "Mozilla/5.0")
 		})
@@ -107,10 +117,11 @@ func TestRepoShortName(t *testing.T) {
 }
 
 func TestNewCommon_repo_error(t *testing.T) {
-	assets.MockLoadWebpackManifest = func() (*assets.WebpackManifest, error) {
-		return &assets.WebpackManifest{}, nil
+	assets.UseDevAssetsProvider()
+	assets.MockLoadWebBuildManifest = func() (*assets.WebBuildManifest, error) {
+		return &assets.WebBuildManifest{}, nil
 	}
-	defer func() { assets.MockLoadWebpackManifest = nil }()
+	defer func() { assets.MockLoadWebBuildManifest = nil }()
 
 	cases := []struct {
 		name string
@@ -154,11 +165,11 @@ func TestNewCommon_repo_error(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			backend.Mocks.Repos.MockGetByName(t, api.RepoName(tt.name), 1)
 			backend.Mocks.Repos.MockGet(t, 1)
-			backend.Mocks.Repos.ResolveRev = func(context.Context, *types.Repo, string) (api.CommitID, error) {
+			backend.Mocks.Repos.ResolveRev = func(context.Context, api.RepoName, string) (api.CommitID, error) {
 				if tt.err != nil {
 					return "", tt.err
 				}
-				return api.CommitID("deadbeef"), nil
+				return "deadbeef", nil
 			}
 
 			req, err := http.NewRequest("GET", "/", nil)
@@ -172,18 +183,46 @@ func TestNewCommon_repo_error(t *testing.T) {
 
 			code := 200
 			got := ""
-			serveError := func(w http.ResponseWriter, r *http.Request, db database.DB, err error, statusCode int) {
+			serveError := func(w http.ResponseWriter, r *http.Request, db database.DB, configurationServer *conf.Server, err error, statusCode int) {
 				got = err.Error()
 				code = statusCode
 			}
 
-			gss := database.NewMockGlobalStateStore()
-			gss.GetFunc.SetDefaultReturn(&database.GlobalState{SiteID: "a"}, nil)
+			gss := dbmocks.NewMockGlobalStateStore()
+			gss.GetFunc.SetDefaultReturn(database.GlobalState{SiteID: "a"}, nil)
 
-			db := database.NewMockDB()
+			config := &schema.OtherExternalServiceConnection{
+				Url:   "https://url.com",
+				Repos: []string{"serve-git-local"},
+			}
+
+			bs, err := json.Marshal(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			extSvcOther := types.ExternalService{
+				Kind:   extsvc.KindOther,
+				ID:     1,
+				Config: extsvc.NewUnencryptedConfig(string(bs)),
+			}
+
+			extSvcs := dbmocks.NewMockExternalServiceStore()
+			extSvcs.ListFunc.SetDefaultReturn([]*types.ExternalService{&extSvcOther}, nil)
+
+			repoStatistics := dbmocks.NewMockRepoStatisticsStore()
+			repoStatistics.GetRepoStatisticsFunc.SetDefaultReturn(database.RepoStatistics{Total: 1}, nil)
+
+			users := dbmocks.NewMockUserStore()
+			users.GetByCurrentAuthUserFunc.SetDefaultReturn(nil, nil)
+
+			db := dbmocks.NewMockDB()
 			db.GlobalStateFunc.SetDefaultReturn(gss)
+			db.ExternalServicesFunc.SetDefaultReturn(extSvcs)
+			db.RepoStatisticsFunc.SetDefaultReturn(repoStatistics)
+			db.UsersFunc.SetDefaultReturn(users)
 
-			_, err = newCommon(httptest.NewRecorder(), req, db, "test", index, serveError)
+			_, err = newCommon(httptest.NewRecorder(), req, db, conf.NewServer(nil), "test", index, serveError)
 			if err != nil {
 				if got != "" || code != 200 {
 					t.Fatal("serveError called and error returned from newCommon")
@@ -252,7 +291,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				},
 				CommitID: "eca7e807356b887ee24b7a7497973bbfc5688dac",
 			},
-			mockStat:      &util.FileInfo{Mode_: os.ModeDir},
+			mockStat:      &fileutil.FileInfo{Mode_: os.ModeDir},
 			expStatusCode: http.StatusOK,
 		},
 		{
@@ -265,7 +304,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				},
 				CommitID: "eca7e807356b887ee24b7a7497973bbfc5688dac",
 			},
-			mockStat:      &util.FileInfo{}, // Not a directory
+			mockStat:      &fileutil.FileInfo{}, // Not a directory
 			expStatusCode: http.StatusOK,
 		},
 
@@ -280,7 +319,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				},
 				CommitID: "eca7e807356b887ee24b7a7497973bbfc5688dac",
 			},
-			mockStat:      &util.FileInfo{}, // Not a directory
+			mockStat:      &fileutil.FileInfo{}, // Not a directory
 			expHandled:    true,
 			expStatusCode: http.StatusTemporaryRedirect,
 			expLocation:   "/github.com/user/repo/-/blob/some/file.go",
@@ -296,7 +335,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				},
 				CommitID: "eca7e807356b887ee24b7a7497973bbfc5688dac",
 			},
-			mockStat:      &util.FileInfo{Mode_: os.ModeDir},
+			mockStat:      &fileutil.FileInfo{Mode_: os.ModeDir},
 			expHandled:    true,
 			expStatusCode: http.StatusTemporaryRedirect,
 			expLocation:   "/github.com/user/repo/-/tree/some/dir",
@@ -313,7 +352,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				Rev:      "@master",
 				CommitID: "eca7e807356b887ee24b7a7497973bbfc5688dac",
 			},
-			mockStat:      &util.FileInfo{}, // Not a directory
+			mockStat:      &fileutil.FileInfo{}, // Not a directory
 			expHandled:    true,
 			expStatusCode: http.StatusTemporaryRedirect,
 			expLocation:   "/github.com/user/repo@master/-/blob/some/file.go",
@@ -330,7 +369,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				Rev:      "@master",
 				CommitID: "eca7e807356b887ee24b7a7497973bbfc5688dac",
 			},
-			mockStat:      &util.FileInfo{Mode_: os.ModeDir},
+			mockStat:      &fileutil.FileInfo{Mode_: os.ModeDir},
 			expHandled:    true,
 			expStatusCode: http.StatusTemporaryRedirect,
 			expLocation:   "/github.com/user/repo@master/-/tree/some/dir",
@@ -401,10 +440,8 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			git.Mocks.Stat = func(commit api.CommitID, name string) (fs.FileInfo, error) {
-				return test.mockStat, nil
-			}
-			t.Cleanup(git.ResetMocks)
+			gsClient := gitserver.NewMockClient()
+			gsClient.StatFunc.SetDefaultReturn(test.mockStat, nil)
 
 			w := httptest.NewRecorder()
 			r, err := http.NewRequest("GET", test.path, nil)
@@ -412,7 +449,7 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			handled, err := redirectTreeOrBlob(test.route, test.path, test.common, w, r, database.NewMockDB())
+			handled, err := redirectTreeOrBlob(test.route, test.path, test.common, w, r, dbmocks.NewMockDB(), gsClient, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -431,11 +468,9 @@ func TestRedirectTreeOrBlob(t *testing.T) {
 }
 
 func init() {
-	globals.ConfigurationServerFrontendOnly = &conf.Server{}
-	gss := database.NewMockGlobalStateStore()
-	gss.GetFunc.SetDefaultReturn(&database.GlobalState{SiteID: "a"}, nil)
+	gss := dbmocks.NewMockGlobalStateStore()
+	gss.GetFunc.SetDefaultReturn(database.GlobalState{SiteID: "a"}, nil)
 
-	db := database.NewMockDB()
+	db := dbmocks.NewMockDB()
 	db.GlobalStateFunc.SetDefaultReturn(gss)
-	siteid.Init(db)
 }

@@ -1,20 +1,18 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
+import { mdiAlertCircle, mdiChevronDown, mdiChevronUp, mdiOpenInNew } from '@mdi/js'
 import classNames from 'classnames'
-import AlertCircleIcon from 'mdi-react/AlertCircleIcon'
-import ChevronDownIcon from 'mdi-react/ChevronDownIcon'
-import ChevronRightIcon from 'mdi-react/ChevronRightIcon'
-import OpenInNewIcon from 'mdi-react/OpenInNewIcon'
 
+import { Timestamp } from '@sourcegraph/branded/src/components/Timestamp'
 import { pluralize } from '@sourcegraph/common'
 import { buildSearchURLQuery } from '@sourcegraph/shared/src/util/url'
 import { Button, Link, Icon } from '@sourcegraph/wildcard'
 
-import { Timestamp } from '../../../../components/time/Timestamp'
+import { ConnectionList } from '../../../../components/FilteredConnection/ui'
 import {
     EventStatus,
-    MonitorActionEvents,
-    MonitorTriggerEventWithActions,
+    type MonitorActionEvents,
+    type MonitorTriggerEventWithActions,
     SearchPatternType,
 } from '../../../../graphql-operations'
 
@@ -49,55 +47,57 @@ export const TriggerEvent: React.FunctionComponent<
         }
 
         switch (triggerEvent.status) {
-            case EventStatus.ERROR:
+            case EventStatus.ERROR: {
                 return 'Unknown error occurred when running the search'
-            case EventStatus.PENDING:
+            }
+            case EventStatus.PENDING: {
                 return 'Search is pending'
-            default:
+            }
+            default: {
                 return 'Search ran successfully'
+            }
         }
     }
 
     return (
-        <>
-            <Button onClick={toggleExpanded} className={classNames('btn-icon d-block', styles.expandButton)}>
-                <Icon
-                    role="img"
-                    aria-hidden={true}
-                    className="mr-2"
-                    as={expanded ? ChevronDownIcon : ChevronRightIcon}
-                />
-
-                {hasError ? (
-                    <Icon
-                        role="img"
-                        aria-hidden={true}
-                        className={classNames(styles.errorIcon, 'mr-2')}
-                        as={AlertCircleIcon}
-                    />
-                ) : (
-                    <span />
-                )}
-
-                <span>
-                    {triggerEvent.status === EventStatus.PENDING ? 'Scheduled' : 'Ran'}{' '}
-                    <Timestamp date={triggerEvent.timestamp} noAbout={true} now={now} />
-                    {triggerEvent.query && (
-                        <Link
-                            to={`/search?${buildSearchURLQuery(triggerEvent.query, SearchPatternType.literal, false)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-weight-normal ml-2"
-                        >
-                            {triggerEvent.resultCount} new {pluralize('result', triggerEvent.resultCount)}{' '}
-                            <Icon role="img" aria-hidden={true} as={OpenInNewIcon} />
-                        </Link>
+        <li>
+            <div className="d-flex align-items-center">
+                <Button onClick={toggleExpanded} className={classNames('d-block', styles.expandButton)}>
+                    {expanded ? (
+                        <Icon svgPath={mdiChevronUp} className="mr-2" aria-label="Collapse run." />
+                    ) : (
+                        <Icon svgPath={mdiChevronDown} className="mr-2" aria-label="Expand run." />
                     )}
-                </span>
-            </Button>
 
+                    {hasError ? (
+                        <Icon
+                            aria-hidden={true}
+                            className={classNames(styles.errorIcon, 'mr-2')}
+                            svgPath={mdiAlertCircle}
+                        />
+                    ) : (
+                        <span />
+                    )}
+
+                    <span>
+                        {triggerEvent.status === EventStatus.PENDING ? 'Scheduled' : 'Ran'}{' '}
+                        <Timestamp date={triggerEvent.timestamp} noAbout={true} now={now} />
+                    </span>
+                </Button>
+                {triggerEvent.query && (
+                    <Link
+                        to={`/search?${buildSearchURLQuery(triggerEvent.query, SearchPatternType.literal, false)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-weight-normal ml-2"
+                    >
+                        {triggerEvent.resultCount} new {pluralize('result', triggerEvent.resultCount)}{' '}
+                        <Icon aria-label=". Open in a new tab" svgPath={mdiOpenInNew} />
+                    </Link>
+                )}
+            </div>
             {expanded && (
-                <>
+                <ConnectionList>
                     <CollapsibleDetailsWithStatus
                         status={triggerEvent.status}
                         message={getTriggerEventMessage()}
@@ -106,7 +106,7 @@ export const TriggerEvent: React.FunctionComponent<
                     />
 
                     {triggerEvent.actions.nodes.map(action => (
-                        <>
+                        <React.Fragment key={action.id}>
                             {action.events.nodes.map(actionEvent => (
                                 <CollapsibleDetailsWithStatus
                                     key={actionEvent.id}
@@ -125,11 +125,11 @@ export const TriggerEvent: React.FunctionComponent<
                                     startOpen={startOpen}
                                 />
                             )}
-                        </>
+                        </React.Fragment>
                     ))}
-                </>
+                </ConnectionList>
             )}
-        </>
+        </li>
     )
 }
 
@@ -139,22 +139,28 @@ function getActionEventMessage(actionEvent: MonitorActionEvents['nodes'][number]
     }
 
     switch (actionEvent.status) {
-        case EventStatus.ERROR:
+        case EventStatus.ERROR: {
             return 'Unknown error occurred when sending the notification'
-        case EventStatus.PENDING:
+        }
+        case EventStatus.PENDING: {
             return 'Notification is pending'
-        default:
+        }
+        default: {
             return 'Notification sent successfully'
+        }
     }
 }
 
 function getActionEventTitle(action: MonitorTriggerEventWithActions['actions']['nodes'][number]): string {
     switch (action.__typename) {
-        case 'MonitorEmail':
+        case 'MonitorEmail': {
             return 'Email'
-        case 'MonitorSlackWebhook':
+        }
+        case 'MonitorSlackWebhook': {
             return 'Slack'
-        case 'MonitorWebhook':
+        }
+        case 'MonitorWebhook': {
             return 'Webhook'
+        }
     }
 }

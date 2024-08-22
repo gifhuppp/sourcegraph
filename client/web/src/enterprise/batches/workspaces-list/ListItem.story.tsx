@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 
 import { WebStory } from '../../../components/WebStory'
 import { mockPreviewWorkspace } from '../batch-spec/batch-spec.mock'
@@ -9,11 +9,21 @@ import { Descriptor } from './Descriptor'
 import { CachedIcon, ExcludeIcon } from './Icons'
 import { ListItem } from './ListItem'
 
-const { add } = storiesOf('web/batches/workspaces-list/ListItem', module).addDecorator(story => (
-    <div className="list-group w-100">{story()}</div>
-))
+const decorator: Decorator = story => <div className="list-group w-100">{story()}</div>
 
-add('basic', () => (
+const config: Meta = {
+    title: 'web/batches/workspaces-list/ListItem',
+    decorators: [decorator],
+}
+
+export default config
+
+const STATUS_INDICATORS: [key: string, icon: React.FunctionComponent<React.PropsWithChildren<unknown>>][] = [
+    ['cached', CachedIcon],
+    ['exclude', ExcludeIcon],
+]
+
+export const Basic: StoryFn = () => (
     <WebStory>
         {props => (
             <>
@@ -29,8 +39,7 @@ add('basic', () => (
                             repository: {
                                 __typename: 'Repository',
                                 id: 'with-long-name',
-                                name:
-                                    'sourcegraph.github.com/some-really-long-organization-name/an-even-longer-repo-name-for-some-reason-that-just-keeps-going',
+                                name: 'sourcegraph.github.com/some-really-long-organization-name/an-even-longer-repo-name-for-some-reason-that-just-keeps-going',
                                 url: 'lol.fake',
                             },
                         })}
@@ -39,9 +48,9 @@ add('basic', () => (
             </>
         )}
     </WebStory>
-))
+)
 
-add('non-root path', () => (
+export const NonRootPath: StoryFn = () => (
     <WebStory>
         {props => (
             <>
@@ -51,22 +60,18 @@ add('non-root path', () => (
                 <ListItem {...props}>
                     <Descriptor
                         workspace={mockPreviewWorkspace(2, {
-                            path:
-                                'a/really/deeply/nested/path/that/is/super/long/and/obnoxious/like/it/just/keeps/going/and-what-the-heck-is-this-folder-name-its-just-so-long/path/to/workspace',
+                            path: 'a/really/deeply/nested/path/that/is/super/long/and/obnoxious/like/it/just/keeps/going/and-what-the-heck-is-this-folder-name-its-just-so-long/path/to/workspace',
                         })}
                     />
                 </ListItem>
             </>
         )}
     </WebStory>
-))
+)
 
-const STATUS_INDICATORS: [key: string, icon: React.FunctionComponent<React.PropsWithChildren<unknown>>][] = [
-    ['cached', CachedIcon],
-    ['exclude', ExcludeIcon],
-]
+NonRootPath.storyName = 'non-root path'
 
-add('with status indicator', () => (
+export const WithStatusIndicator: StoryFn = () => (
     <WebStory>
         {props => (
             <>
@@ -78,9 +83,11 @@ add('with status indicator', () => (
             </>
         )}
     </WebStory>
-))
+)
 
-add('with click handler', () => (
+WithStatusIndicator.storyName = 'with status indicator'
+
+export const WithClickHandler: StoryFn = () => (
     <WebStory>
         {props => (
             <>
@@ -93,4 +100,6 @@ add('with click handler', () => (
             </>
         )}
     </WebStory>
-))
+)
+
+WithClickHandler.storyName = 'with click handler'

@@ -11,13 +11,22 @@ const https = require('https')
 const util = require('util')
 
 let fixedHeaders = {}
+let proxyAgent = null
 
-module.exports = function polyfillEventSource(headers) {
+module.exports = function polyfillEventSource(headers, agent) {
   fixedHeaders = { ...headers }
+  proxyAgent = agent
 
   global.EventSource = EventSource
-  global.MessageEvent = MessageEvent
-  global.Event = Event
+
+  // It's safe to use a browser implementation of Event and MessageEvent if we only polyfill to add
+  // support for additional header fields.
+  if (typeof global.MessageEvent === 'undefined') {
+    global.MessageEvent = MessageEventPolyfill
+  }
+  if (typeof global.Event === 'undefined') {
+    global.Event = EventPolyfill
+  }
 }
 
 const httpsOptions = new Set([
@@ -162,6 +171,10 @@ function EventSource(url, eventSourceInitDict) {
     // Pass this on to the XHR
     if (eventSourceInitDict && eventSourceInitDict.withCredentials !== undefined) {
       options.withCredentials = eventSourceInitDict.withCredentials
+    }
+
+    if (proxyAgent) {
+      options.agent = proxyAgent(url)
     }
 
     request = (isSecure ? https : http).request(options, res => {
@@ -460,7 +473,7 @@ EventSource.prototype.removeEventListener = function removeEventListener(type, l
  * @see http://www.w3.org/TR/DOM-Level-3-Events/#interface-Event
  * @api private
  */
-function Event(type, optionalProperties) {
+function EventPolyfill(type, optionalProperties) {
   Object.defineProperty(this, 'type', { writable: false, value: type, enumerable: true })
   if (optionalProperties) {
     for (const f in optionalProperties) {
@@ -477,7 +490,7 @@ function Event(type, optionalProperties) {
  * @see http://www.w3.org/TR/webmessaging/#event-definitions
  * @api private
  */
-function MessageEvent(type, eventInitDict) {
+function MessageEventPolyfill(type, eventInitDict) {
   Object.defineProperty(this, 'type', { writable: false, value: type, enumerable: true })
   for (const f in eventInitDict) {
     if (eventInitDict.hasOwnProperty(f)) {

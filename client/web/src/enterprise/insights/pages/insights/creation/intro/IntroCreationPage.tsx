@@ -1,56 +1,63 @@
 import React, { useEffect } from 'react'
 
-import { useHistory } from 'react-router'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-import { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
+import { useExperimentalFeatures } from '@sourcegraph/shared/src/settings/settings'
+import { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { PageHeader, Link } from '@sourcegraph/wildcard'
 
 import { PageTitle } from '../../../../../../components/PageTitle'
 import { CodeInsightsIcon } from '../../../../../../insights/Icons'
-import { CodeInsightsPage } from '../../../../components/code-insights-page/CodeInsightsPage'
+import { CodeInsightsPage } from '../../../../components'
 
 import {
     CaptureGroupInsightCard,
-    ExtensionInsightsCard,
+    ComputeInsightCard,
     LangStatsInsightCard,
     SearchInsightCard,
 } from './cards/InsightCards'
 
 import styles from './IntroCreationPage.module.scss'
 
-interface IntroCreationPageProps extends TelemetryProps {}
+interface IntroCreationPageProps extends TelemetryProps, TelemetryV2Props {}
 
 /** Displays intro page for insights creation UI. */
 export const IntroCreationPage: React.FunctionComponent<React.PropsWithChildren<IntroCreationPageProps>> = props => {
-    const { telemetryService } = props
+    const { telemetryService, telemetryRecorder } = props
 
-    const history = useHistory()
+    const navigate = useNavigate()
     const { search } = useLocation()
+    const codeInsightsCompute = useExperimentalFeatures(features => features.codeInsightsCompute)
 
     const handleCreateSearchBasedInsightClick = (): void => {
         telemetryService.log('CodeInsightsCreateSearchBasedInsightClick')
-        history.push(`/insights/create/search${search}`)
+        telemetryRecorder.recordEvent('insights.create.searchBased', 'click')
+        navigate(`/insights/create/search${search}`)
     }
 
     const handleCaptureGroupInsightClick = (): void => {
         telemetryService.log('CodeInsightsCreateCaptureGroupInsightClick')
-        history.push(`/insights/create/capture-group${search}`)
+        telemetryRecorder.recordEvent('insights.create.captureGroup', 'click')
+        navigate(`/insights/create/capture-group${search}`)
+    }
+
+    const handleCreateComputeInsightClick = (): void => {
+        telemetryService.log('CodeInsightsCreateComputeInsightClick')
+        telemetryRecorder.recordEvent('insights.create.compute', 'click')
+        navigate(`/insights/create/group-results${search}`)
     }
 
     const handleCreateCodeStatsInsightClick = (): void => {
         telemetryService.log('CodeInsightsCreateCodeStatsInsightClick')
-        history.push(`/insights/create/lang-stats${search}`)
-    }
-
-    const handleExploreExtensionsClick = (): void => {
-        telemetryService.log('CodeInsightsExploreInsightExtensionsClick')
-        history.push('/extensions?query=category:Insights&experimental=true')
+        telemetryRecorder.recordEvent('insights.create.codeStats', 'click')
+        navigate(`/insights/create/lang-stats${search}`)
     }
 
     useEffect(() => {
         telemetryService.logViewEvent('CodeInsightsCreationPage')
-    }, [telemetryService])
+        telemetryRecorder.recordEvent('insights.create', 'view')
+    }, [telemetryService, telemetryRecorder])
 
     return (
         <CodeInsightsPage className={styles.container}>
@@ -79,6 +86,13 @@ export const IntroCreationPage: React.FunctionComponent<React.PropsWithChildren<
                     handleCreate={handleCaptureGroupInsightClick}
                 />
 
+                {codeInsightsCompute && (
+                    <ComputeInsightCard
+                        data-testid="create-compute-insights"
+                        handleCreate={handleCreateComputeInsightClick}
+                    />
+                )}
+
                 <LangStatsInsightCard
                     data-testid="create-lang-usage-insight"
                     handleCreate={handleCreateCodeStatsInsightClick}
@@ -90,8 +104,6 @@ export const IntroCreationPage: React.FunctionComponent<React.PropsWithChildren<
                         use cases.
                     </Link>
                 </div>
-
-                <ExtensionInsightsCard data-testid="explore-extensions" handleCreate={handleExploreExtensionsClick} />
             </div>
         </CodeInsightsPage>
     )

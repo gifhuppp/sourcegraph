@@ -1,5 +1,4 @@
-import { select } from '@storybook/addon-knobs'
-import { storiesOf } from '@storybook/react'
+import type { Decorator, StoryFn, Meta } from '@storybook/react'
 import { noop } from 'lodash'
 import { MATCH_ANY_PARAMETERS, WildcardMockLink } from 'wildcard-mock-link'
 
@@ -7,21 +6,30 @@ import { getDocumentNode } from '@sourcegraph/http-client'
 import { MockedTestProvider } from '@sourcegraph/shared/src/testing/apollo'
 
 import { WebStory } from '../../../components/WebStory'
-import { ExternalServiceKind } from '../../../graphql-operations'
+import { ExternalServiceKind, type UserAreaUserFields } from '../../../graphql-operations'
 
 import { AddCredentialModal } from './AddCredentialModal'
 import { CREATE_BATCH_CHANGES_CREDENTIAL } from './backend'
 
-const { add } = storiesOf('web/batches/settings/AddCredentialModal', module)
-    .addDecorator(story => <div className="p-3 container">{story()}</div>)
-    .addParameters({
-        chromatic: {
-            // Delay screenshot taking, so the modal has opened by the time the screenshot is taken.
-            delay: 2000,
-        },
-    })
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
 
-add('Requires SSH - step 1', () => (
+const config: Meta = {
+    title: 'web/batches/settings/AddCredentialModal',
+    decorators: [decorator],
+    parameters: {},
+}
+
+const user = {
+    __typename: 'User',
+    id: '123',
+    username: 'alice',
+    avatarURL: null,
+    viewerCanAdminister: true,
+} as UserAreaUserFields
+
+export default config
+
+export const RequiresSSHstep1: StoryFn = args => (
     <WebStory>
         {props => (
             <MockedTestProvider
@@ -49,12 +57,8 @@ add('Requires SSH - step 1', () => (
             >
                 <AddCredentialModal
                     {...props}
-                    userID="user-id-1"
-                    externalServiceKind={select(
-                        'External service kind',
-                        Object.values(ExternalServiceKind),
-                        ExternalServiceKind.GITHUB
-                    )}
+                    user={user}
+                    externalServiceKind={args.externalServiceKind}
                     externalServiceURL="https://github.com/"
                     requiresSSH={true}
                     requiresUsername={false}
@@ -64,18 +68,26 @@ add('Requires SSH - step 1', () => (
             </MockedTestProvider>
         )}
     </WebStory>
-))
-add('Requires SSH - step 2', () => (
+)
+RequiresSSHstep1.argTypes = {
+    externalServiceKind: {
+        name: 'External service kind',
+        control: { type: 'select', options: Object.values(ExternalServiceKind) },
+    },
+}
+RequiresSSHstep1.args = {
+    externalServiceKind: ExternalServiceKind.GITHUB,
+}
+
+RequiresSSHstep1.storyName = 'Requires SSH - step 1'
+
+export const RequiresSSHstep2: StoryFn = args => (
     <WebStory>
         {props => (
             <AddCredentialModal
                 {...props}
-                userID="user-id-1"
-                externalServiceKind={select(
-                    'External service kind',
-                    Object.values(ExternalServiceKind),
-                    ExternalServiceKind.GITHUB
-                )}
+                user={user}
+                externalServiceKind={args.externalServiceKind}
                 externalServiceURL="https://github.com/"
                 requiresSSH={true}
                 requiresUsername={false}
@@ -85,14 +97,25 @@ add('Requires SSH - step 2', () => (
             />
         )}
     </WebStory>
-))
+)
+RequiresSSHstep2.argTypes = {
+    externalServiceKind: {
+        name: 'External service kind',
+        control: { type: 'select', options: Object.values(ExternalServiceKind) },
+    },
+}
+RequiresSSHstep2.args = {
+    externalServiceKind: ExternalServiceKind.GITHUB,
+}
 
-add('GitHub', () => (
+RequiresSSHstep2.storyName = 'Requires SSH - step 2'
+
+export const GitHub: StoryFn = () => (
     <WebStory>
         {props => (
             <AddCredentialModal
                 {...props}
-                userID="user-id-1"
+                user={user}
                 externalServiceKind={ExternalServiceKind.GITHUB}
                 externalServiceURL="https://github.com/"
                 requiresSSH={false}
@@ -102,14 +125,16 @@ add('GitHub', () => (
             />
         )}
     </WebStory>
-))
+)
 
-add('GitLab', () => (
+GitHub.storyName = 'GitHub'
+
+export const GitLab: StoryFn = () => (
     <WebStory>
         {props => (
             <AddCredentialModal
                 {...props}
-                userID="user-id-1"
+                user={user}
                 externalServiceKind={ExternalServiceKind.GITLAB}
                 externalServiceURL="https://gitlab.com/"
                 requiresSSH={false}
@@ -119,14 +144,16 @@ add('GitLab', () => (
             />
         )}
     </WebStory>
-))
+)
 
-add('Bitbucket Server', () => (
+GitLab.storyName = 'GitLab'
+
+export const BitbucketServer: StoryFn = () => (
     <WebStory>
         {props => (
             <AddCredentialModal
                 {...props}
-                userID="user-id-1"
+                user={user}
                 externalServiceKind={ExternalServiceKind.BITBUCKETSERVER}
                 externalServiceURL="https://bitbucket.sgdev.org/"
                 requiresSSH={false}
@@ -136,14 +163,14 @@ add('Bitbucket Server', () => (
             />
         )}
     </WebStory>
-))
+)
 
-add('Bitbucket Cloud', () => (
+export const BitbucketCloud: StoryFn = () => (
     <WebStory>
         {props => (
             <AddCredentialModal
                 {...props}
-                userID="user-id-1"
+                user={user}
                 externalServiceKind={ExternalServiceKind.BITBUCKETCLOUD}
                 externalServiceURL="https://bitbucket.org/"
                 requiresSSH={false}
@@ -153,4 +180,4 @@ add('Bitbucket Cloud', () => (
             />
         )}
     </WebStory>
-))
+)

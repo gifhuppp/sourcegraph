@@ -1,45 +1,52 @@
 import React, { useMemo, useState, useCallback } from 'react'
 
+import { EditorView } from '@codemirror/view'
+import { mdiInformationOutline } from '@mdi/js'
 import { debounce } from 'lodash'
-import InfoCircleOutlineIcon from 'mdi-react/InfoCircleOutlineIcon'
-import * as Monaco from 'monaco-editor'
 
+import { createDefaultSuggestions } from '@sourcegraph/branded'
 import { isMacPlatform as isMacPlatformFunc } from '@sourcegraph/common'
-import { IHighlightLineRange } from '@sourcegraph/shared/src/schema'
-import { PathMatch } from '@sourcegraph/shared/src/search/stream'
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
+import type { PathMatch } from '@sourcegraph/shared/src/search/stream'
+import { fetchStreamSuggestions } from '@sourcegraph/shared/src/search/suggestions'
 import { Icon, Button, Input, InputStatus } from '@sourcegraph/wildcard'
 
-import { BlockProps, FileBlockInput } from '../..'
+import type { BlockProps, FileBlockInput } from '../..'
+import type { HighlightLineRange } from '../../../graphql-operations'
+import { SearchPatternType } from '../../../graphql-operations'
 import { parseLineRange, serializeLineRange } from '../../serialize'
 import { SearchTypeSuggestionsInput } from '../suggestions/SearchTypeSuggestionsInput'
 import { fetchSuggestions } from '../suggestions/suggestions'
-import { useFocusMonacoEditorOnMount } from '../useFocusMonacoEditorOnMount'
 
 import styles from './NotebookFileBlockInputs.module.scss'
 
-interface NotebookFileBlockInputsProps extends Pick<BlockProps, 'onRunBlock'>, ThemeProps {
+interface NotebookFileBlockInputsProps extends Pick<BlockProps, 'onRunBlock'> {
     id: string
-    sourcegraphSearchLanguageId: string
-    editor: Monaco.editor.IStandaloneCodeEditor | undefined
     queryInput: string
-    lineRange: IHighlightLineRange | null
-    setEditor: (editor: Monaco.editor.IStandaloneCodeEditor) => void
+    patternType: SearchPatternType
+    lineRange: HighlightLineRange | null
+    onEditorCreated: (editor: EditorView) => void
     setQueryInput: (value: string) => void
-    debouncedSetQueryInput: (value: string) => void
-    onLineRangeChange: (lineRange: IHighlightLineRange | null) => void
+    onLineRangeChange: (lineRange: HighlightLineRange | null) => void
     onFileSelected: (file: FileBlockInput) => void
+    isSourcegraphDotCom: boolean
 }
 
 function getFileSuggestionsQuery(queryInput: string): string {
     return `${queryInput} fork:yes type:path count:50`
 }
 
+const editorAttributes = [
+    EditorView.editorAttributes.of({
+        'data-testid': 'notebook-file-block-input',
+    }),
+    EditorView.contentAttributes.of({
+        'aria-label': 'File search input',
+    }),
+]
+
 export const NotebookFileBlockInputs: React.FunctionComponent<
     React.PropsWithChildren<NotebookFileBlockInputsProps>
-> = ({ id, lineRange, editor, setEditor, onFileSelected, onLineRangeChange, ...props }) => {
-    useFocusMonacoEditorOnMount({ editor, isEditing: true })
-
+> = ({ id, lineRange, onFileSelected, onLineRangeChange, isSourcegraphDotCom, patternType, ...inputProps }) => {
     const [lineRangeInput, setLineRangeInput] = useState(serializeLineRange(lineRange))
     const debouncedOnLineRangeChange = useMemo(() => debounce(onLineRangeChange, 300), [onLineRangeChange])
 
@@ -60,10 +67,11 @@ export const NotebookFileBlockInputs: React.FunctionComponent<
         (query: string) =>
             fetchSuggestions(
                 getFileSuggestionsQuery(query),
+                patternType,
                 (suggestion): suggestion is PathMatch => suggestion.type === 'path',
                 file => file
             ),
-        []
+        [patternType]
     )
 
     const countSuggestions = useCallback((suggestions: PathMatch[]) => suggestions.length, [])
@@ -85,25 +93,32 @@ export const NotebookFileBlockInputs: React.FunctionComponent<
 
     const isMacPlatform = useMemo(() => isMacPlatformFunc(), [])
 
+    const queryCompletion = useMemo(
+        () =>
+            createDefaultSuggestions({
+                isSourcegraphDotCom,
+                fetchSuggestions: fetchStreamSuggestions,
+            }),
+        [isSourcegraphDotCom]
+    )
+
     return (
         <div className={styles.fileBlockInputs}>
             <div className="text-muted mb-2">
                 <small>
-                    <Icon role="img" aria-hidden={true} as={InfoCircleOutlineIcon} /> To automatically select a file,
-                    copy a Sourcegraph file URL, select the block, and paste the URL ({isMacPlatform ? '⌘' : 'Ctrl'} +
-                    v).
+                    <Icon aria-hidden={true} svgPath={mdiInformationOutline} /> To automatically select a file, copy a
+                    Sourcegraph file URL, select the block, and paste the URL ({isMacPlatform ? '⌘' : 'Ctrl'} + v).
                 </small>
             </div>
             <SearchTypeSuggestionsInput<PathMatch>
                 id={id}
-                editor={editor}
-                setEditor={setEditor}
                 label="Find a file using a Sourcegraph search query"
                 queryPrefix="type:path"
                 fetchSuggestions={fetchFileSuggestions}
                 countSuggestions={countSuggestions}
                 renderSuggestions={renderSuggestions}
-                {...props}
+                extension={useMemo(() => [queryCompletion, editorAttributes], [queryCompletion])}
+                {...inputProps}
             />
             <div className="mt-2">
                 <Input
@@ -115,8 +130,9 @@ export const NotebookFileBlockInputs: React.FunctionComponent<
                     label="Line range"
                     className="mb-0"
                     error={
-                        isLineRangeValid === false &&
-                        'Line range is invalid. Enter a single line (1), a line range (1-10), or leave empty to show the entire file.'
+                        isLineRangeValid === false
+                            ? 'Line range is invalid. Enter a single line (1), a line range (1-10), or leave empty to show the entire file.'
+                            : undefined
                     }
                 />
             </div>

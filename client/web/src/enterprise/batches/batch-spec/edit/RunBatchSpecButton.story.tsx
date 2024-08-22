@@ -1,17 +1,24 @@
 import { useState } from 'react'
 
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
+
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 
 import { WebStory } from '../../../../components/WebStory'
-import { ExecutionOptions } from '../BatchSpecContext'
+import type { ExecutionOptions } from '../BatchSpecContext'
 
 import { RunBatchSpecButton } from './RunBatchSpecButton'
 
-const { add } = storiesOf('web/batches/batch-spec/edit/RunBatchSpecButton', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
 
-add('disabled', () => {
+const config: Meta = {
+    title: 'web/batches/batch-spec/edit/RunBatchSpecButton',
+    decorators: [decorator],
+}
+
+export default config
+
+export const Disabled: StoryFn = () => {
     const [options, setOptions] = useState<ExecutionOptions>({ runWithoutCache: false })
     return (
         <WebStory>
@@ -22,13 +29,14 @@ add('disabled', () => {
                     isExecutionDisabled="There's a problem with your batch spec."
                     options={options}
                     onChangeOptions={setOptions}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             )}
         </WebStory>
     )
-})
+}
 
-add('enabled', () => {
+export const Enabled: StoryFn = () => {
     const [options, setOptions] = useState<ExecutionOptions>({ runWithoutCache: false })
     return (
         <WebStory>
@@ -38,8 +46,9 @@ add('enabled', () => {
                     execute={() => alert('executing!')}
                     options={options}
                     onChangeOptions={setOptions}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             )}
         </WebStory>
     )
-})
+}

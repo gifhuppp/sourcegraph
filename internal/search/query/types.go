@@ -3,13 +3,18 @@ package query
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/grafana/regexp"
 
 	"github.com/sourcegraph/sourcegraph/internal/search/limits"
+	"github.com/sourcegraph/sourcegraph/internal/types"
+	"github.com/sourcegraph/sourcegraph/lib/pointers"
 )
 
+// ExpectedOperand is a 'marker' error type that the frontend logic
+// knows how to convert into a user-facing alert.
 type ExpectedOperand struct {
 	Msg string
 }
@@ -18,6 +23,8 @@ func (e *ExpectedOperand) Error() string {
 	return e.Msg
 }
 
+// UnsupportedError is a 'marker' error type that the frontend logic
+// knows how to convert into a user-facing alert.
 type UnsupportedError struct {
 	Msg string
 }
@@ -30,21 +37,27 @@ type SearchType int
 
 const (
 	SearchTypeRegex SearchType = iota
-	SearchTypeLiteralDefault
+	SearchTypeLiteral
 	SearchTypeStructural
-	SearchTypeLucky
+	SearchTypeStandard
+	SearchTypeCodyContext
+	SearchTypeKeyword
 )
 
 func (s SearchType) String() string {
 	switch s {
+	case SearchTypeStandard:
+		return "standard"
 	case SearchTypeRegex:
 		return "regex"
-	case SearchTypeLiteralDefault:
+	case SearchTypeLiteral:
 		return "literal"
 	case SearchTypeStructural:
 		return "structural"
-	case SearchTypeLucky:
-		return "lucky"
+	case SearchTypeCodyContext:
+		return "codycontext"
+	case SearchTypeKeyword:
+		return "keyword"
 	default:
 		return fmt.Sprintf("unknown{%d}", s)
 	}
@@ -131,7 +144,7 @@ func (q Q) IsCaseSensitive() bool {
 	return q.BoolValue("case")
 }
 
-func (q Q) Repositories() (repos []string, negatedRepos []string) {
+func (q Q) Repositories() (repos []ParsedRepoFilter, negatedRepos []string) {
 	VisitField(q, FieldRepo, func(value string, negated bool, a Annotation) {
 		if a.Labels.IsSet(IsPredicate) {
 			return
@@ -140,14 +153,19 @@ func (q Q) Repositories() (repos []string, negatedRepos []string) {
 		if negated {
 			negatedRepos = append(negatedRepos, value)
 		} else {
-			repos = append(repos, value)
+			repoFilter, err := ParseRepositoryRevisions(value)
+			// Should never happen because the repo name is already validated
+			if err != nil {
+				panic(fmt.Sprintf("repo field %q is an invalid regex: %v", value, err))
+			}
+			repos = append(repos, repoFilter)
 		}
 	})
 	return repos, negatedRepos
 }
 
 func (q Q) Dependencies() (dependencies []string) {
-	VisitPredicate(q, func(field, name, value string) {
+	VisitPredicate(q, func(field, name, value string, _ bool) {
 		if field == FieldRepo && (name == "dependencies" || name == "deps") {
 			dependencies = append(dependencies, value)
 		}
@@ -156,7 +174,7 @@ func (q Q) Dependencies() (dependencies []string) {
 }
 
 func (q Q) Dependents() (dependents []string) {
-	VisitPredicate(q, func(field, name, value string) {
+	VisitPredicate(q, func(field, name, value string, _ bool) {
 		if field == FieldRepo && (name == "dependents" || name == "revdeps") {
 			dependents = append(dependents, value)
 		}
@@ -191,15 +209,16 @@ func (p Plan) ToQ() Q {
 		operands := basic.ToParseTree()
 		nodes = append(nodes, NewOperator(operands, And)...)
 	}
-	return Q(NewOperator(nodes, Or))
+	return NewOperator(nodes, Or)
 }
 
 // Basic represents a leaf expression to evaluate in our search engine. A basic
 // query comprises:
-//   (1) a single search pattern expression, which may contain
-//       'and' or 'or' operators; and
-//   (2) parameters that scope the evaluation of search
-//       patterns (e.g., to repos, files, etc.).
+//
+//	(1) a single search pattern expression, which may contain
+//	    'and' or 'or' operators; and
+//	(2) parameters that scope the evaluation of search
+//	    patterns (e.g., to repos, files, etc.).
 type Basic struct {
 	Parameters
 	Pattern Node
@@ -317,11 +336,176 @@ type Parameters []Parameter
 // IncludeExcludeValues partitions multiple values of a field into positive
 // (include) and negated (exclude) values.
 func (p Parameters) IncludeExcludeValues(field string) (include, exclude []string) {
-	VisitField(toNodes(p), field, func(v string, negated bool, _ Annotation) {
+	VisitField(toNodes(p), field, func(v string, negated bool, ann Annotation) {
+		if ann.Labels.IsSet(IsPredicate) {
+			// Skip predicates
+			return
+		}
+
 		if negated {
 			exclude = append(exclude, v)
 		} else {
 			include = append(include, v)
+		}
+	})
+	return include, exclude
+}
+
+// RepoHasFileContentArgs represents the args of any of the following predicates:
+// - repo:contains.file(path:foo content:bar) || repo:has.file(path:foo content:bar)
+// - repo:contains.path(foo) || repo:has.path(foo)
+// - repo:contains.content(c) || repo:has.content(c)
+// - repo:contains(file:foo content:bar)
+// - repohasfile:f
+type RepoHasFileContentArgs struct {
+	// At least one of these strings should be non-empty
+	Path    string // optional
+	Content string // optional
+	Negated bool
+}
+
+func (p Parameters) RepoHasFileContent() (res []RepoHasFileContentArgs) {
+	nodes := toNodes(p)
+	VisitField(nodes, FieldRepoHasFile, func(v string, negated bool, _ Annotation) {
+		res = append(res, RepoHasFileContentArgs{
+			Path:    v,
+			Negated: negated,
+		})
+	})
+
+	VisitTypedPredicate(nodes, func(pred *RepoContainsPathPredicate) {
+		res = append(res, RepoHasFileContentArgs{
+			Path:    pred.Pattern,
+			Negated: pred.Negated,
+		})
+	})
+
+	VisitTypedPredicate(nodes, func(pred *RepoContainsContentPredicate) {
+		res = append(res, RepoHasFileContentArgs{
+			Content: pred.Pattern,
+			Negated: pred.Negated,
+		})
+	})
+
+	VisitTypedPredicate(nodes, func(pred *RepoContainsFilePredicate) {
+		res = append(res, RepoHasFileContentArgs{
+			Path:    pred.Path,
+			Content: pred.Content,
+			Negated: pred.Negated,
+		})
+	})
+
+	VisitTypedPredicate(nodes, func(pred *RepoContainsPredicate) {
+		res = append(res, RepoHasFileContentArgs{
+			Path:    pred.File,
+			Content: pred.Content,
+			Negated: pred.Negated,
+		})
+	})
+
+	return res
+}
+
+func (p Parameters) FileContainsContent() (include []string) {
+	VisitTypedPredicate(toNodes(p), func(pred *FileContainsContentPredicate) {
+		include = append(include, pred.Pattern)
+	})
+	return include
+}
+
+type RepoHasCommitAfterArgs struct {
+	TimeRef string
+	Negated bool
+}
+
+func (p Parameters) RepoContainsCommitAfter() (res *RepoHasCommitAfterArgs) {
+	// Look for values of repohascommitafter:
+	p.FindParameter(FieldRepoHasCommitAfter, func(value string, negated bool, annotation Annotation) {
+		res = &RepoHasCommitAfterArgs{
+			TimeRef: value,
+			Negated: negated,
+		}
+	})
+
+	// Look for values of repo:contains.commit.after()
+	nodes := toNodes(p)
+	VisitTypedPredicate(nodes, func(pred *RepoContainsCommitAfterPredicate) {
+		res = &RepoHasCommitAfterArgs{
+			TimeRef: pred.TimeRef,
+			Negated: pred.Negated,
+		}
+	})
+
+	return res
+}
+
+type RepoKVPFilter struct {
+	Key     types.RegexpPattern
+	Value   *types.RegexpPattern
+	Negated bool
+	KeyOnly bool
+}
+
+func (p Parameters) RepoHasKVPs() (res []RepoKVPFilter) {
+	VisitTypedPredicate(toNodes(p), func(pred *RepoHasMetaPredicate) {
+		res = append(res, RepoKVPFilter{
+			Key:     pred.Key,
+			Value:   pred.Value,
+			Negated: pred.Negated,
+			KeyOnly: pred.KeyOnly,
+		})
+	})
+
+	VisitTypedPredicate(toNodes(p), func(pred *RepoHasKVPPredicate) {
+		res = append(res, RepoKVPFilter{
+			Key:     exactRegexpPattern(pred.Key),
+			Value:   pointers.Ptr(exactRegexpPattern(pred.Value)),
+			Negated: pred.Negated,
+		})
+	})
+
+	VisitTypedPredicate(toNodes(p), func(pred *RepoHasTagPredicate) {
+		res = append(res, RepoKVPFilter{
+			Key:     exactRegexpPattern(pred.Key),
+			Negated: pred.Negated,
+		})
+	})
+
+	VisitTypedPredicate(toNodes(p), func(pred *RepoHasKeyPredicate) {
+		res = append(res, RepoKVPFilter{
+			Key:     exactRegexpPattern(pred.Key),
+			Negated: pred.Negated,
+			KeyOnly: true,
+		})
+	})
+
+	return res
+}
+
+func (p Parameters) RepoHasTopics() (res []RepoHasTopicPredicate) {
+	VisitTypedPredicate(toNodes(p), func(pred *RepoHasTopicPredicate) {
+		res = append(res, *pred)
+	})
+	return res
+}
+
+func (p Parameters) FileHasOwner() (include, exclude []string) {
+	VisitTypedPredicate(toNodes(p), func(pred *FileHasOwnerPredicate) {
+		if pred.Negated {
+			exclude = append(exclude, pred.Owner)
+		} else {
+			include = append(include, pred.Owner)
+		}
+	})
+	return include, exclude
+}
+
+func (p Parameters) FileHasContributor() (include []string, exclude []string) {
+	VisitTypedPredicate(toNodes(p), func(pred *FileHasContributorPredicate) {
+		if pred.Negated {
+			exclude = append(exclude, pred.Contributor)
+		} else {
+			include = append(include, pred.Contributor)
 		}
 	})
 	return include, exclude
@@ -336,22 +520,12 @@ func (p Parameters) Exists(field string) bool {
 	return found
 }
 
-func (p Parameters) Dependencies() (dependencies []string) {
-	VisitPredicate(toNodes(p), func(field, name, value string) {
-		if field == FieldRepo && (name == "dependencies" || name == "deps") {
-			dependencies = append(dependencies, value)
-		}
+func (p Parameters) RepoHasDescription() (descriptionPatterns []string) {
+	VisitTypedPredicate(toNodes(p), func(pred *RepoHasDescriptionPredicate) {
+		split := strings.Split(pred.Pattern, " ")
+		descriptionPatterns = append(descriptionPatterns, "(?:"+strings.Join(split, ").*?(?:")+")")
 	})
-	return dependencies
-}
-
-func (p Parameters) Dependents() (dependents []string) {
-	VisitPredicate(toNodes(p), func(field, name, value string) {
-		if field == FieldRepo && (name == "revdeps" || name == "dependents") {
-			dependents = append(dependents, value)
-		}
-	})
-	return dependents
+	return descriptionPatterns
 }
 
 func (p Parameters) MaxResults(defaultLimit int) int {
@@ -439,7 +613,7 @@ func (p Parameters) Archived() *YesNoOnly {
 	return p.yesNoOnlyValue(FieldArchived)
 }
 
-func (p Parameters) Repositories() (repos []string, negatedRepos []string) {
+func (p Parameters) Repositories() (repos []ParsedRepoFilter, negatedRepos []string) {
 	VisitField(toNodes(p), FieldRepo, func(value string, negated bool, a Annotation) {
 		if a.Labels.IsSet(IsPredicate) {
 			return
@@ -448,7 +622,12 @@ func (p Parameters) Repositories() (repos []string, negatedRepos []string) {
 		if negated {
 			negatedRepos = append(negatedRepos, value)
 		} else {
-			repos = append(repos, value)
+			repoFilter, err := ParseRepositoryRevisions(value)
+			// Should never happen because the repo name is already validated
+			if err != nil {
+				panic(fmt.Sprintf("repo field %q is an invalid regex: %v", value, err))
+			}
+			repos = append(repos, repoFilter)
 		}
 	})
 	return repos, negatedRepos

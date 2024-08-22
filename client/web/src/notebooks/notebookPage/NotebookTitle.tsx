@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react'
 
-import PencilOutlineIcon from 'mdi-react/PencilOutlineIcon'
+import { mdiPencilOutline } from '@mdi/js'
 
-import { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
+import { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { useOnClickOutside, Icon, Input } from '@sourcegraph/wildcard'
 
 import styles from './NotebookTitle.module.scss'
 
-export interface NotebookTitleProps extends TelemetryProps {
+export interface NotebookTitleProps extends TelemetryProps, TelemetryV2Props {
     title: string
     viewerCanManage: boolean
     onUpdateTitle: (title: string) => void
@@ -18,6 +19,7 @@ export const NotebookTitle: React.FunctionComponent<React.PropsWithChildren<Note
     viewerCanManage,
     onUpdateTitle,
     telemetryService,
+    telemetryRecorder,
 }) => {
     const [isEditing, setIsEditing] = useState(false)
     const [title, setTitle] = useState(initialTitle)
@@ -31,6 +33,7 @@ export const NotebookTitle: React.FunctionComponent<React.PropsWithChildren<Note
 
     const updateTitle = (): void => {
         telemetryService.log('SearchNotebookTitleUpdated')
+        telemetryRecorder.recordEvent('notebook.title', 'update')
         setIsEditing(false)
         onUpdateTitle(title)
     }
@@ -67,7 +70,8 @@ export const NotebookTitle: React.FunctionComponent<React.PropsWithChildren<Note
             >
                 <span>{title}</span>
                 <span className={styles.titleEditIcon}>
-                    <Icon role="img" aria-hidden={true} as={PencilOutlineIcon} />
+                    {/* Dot prefix in aria-label to ensure vocal differentiation from notebook title, when read by screen reader */}
+                    <Icon aria-label=". Click to edit title" svgPath={mdiPencilOutline} />
                 </span>
             </button>
         )

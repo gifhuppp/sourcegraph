@@ -1,9 +1,9 @@
 import * as Comlink from 'comlink'
-import { Observable } from 'rxjs'
+import type { Observable } from 'rxjs'
 import { filter, first } from 'rxjs/operators'
 import * as vscode from 'vscode'
 
-import { ExtensionCoreAPI, HelpSidebarAPI, SearchPanelAPI, SearchSidebarAPI } from '../contract'
+import type { ExtensionCoreAPI, HelpSidebarAPI, SearchPanelAPI, SearchSidebarAPI } from '../contract'
 import { endpointSetting } from '../settings/endpointSetting'
 
 import { createEndpointsForWebview } from './comlink/extensionEndpoint'
@@ -23,19 +23,20 @@ export async function initializeSearchPanelWebview({
     searchPanelAPI: Comlink.Remote<SearchPanelAPI>
     webviewPanel: vscode.WebviewPanel
 }> {
+    const webviewPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview')
+    const extensionsDistributionPath = vscode.Uri.joinPath(extensionUri, 'dist', 'extensions')
+
     const panel = vscode.window.createWebviewPanel('sourcegraphSearch', 'Sourcegraph', vscode.ViewColumn.One, {
         enableScripts: true,
         retainContextWhenHidden: true,
         enableFindWidget: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist', 'webview')],
+        localResourceRoots: [webviewPath, extensionsDistributionPath],
     })
 
-    const webviewPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview')
-
+    const extensionsDistributionWebviewPath = panel.webview.asWebviewUri(extensionsDistributionPath)
     const scriptSource = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'searchPanel.js'))
     const cssModuleSource = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'searchPanel.css'))
     const styleSource = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'style.css'))
-    const codiconFontSource = panel.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'codicon.ttf'))
 
     const { proxy, expose, panelId } = createEndpointsForWebview(panel)
 
@@ -53,28 +54,18 @@ export async function initializeSearchPanelWebview({
     // Expose the "Core" extension API to the Webview.
     Comlink.expose(extensionCoreAPI, expose)
 
-    // Use a nonce to only allow specific scripts to be run
-    const nonce = getNonce()
-
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'images', 'logo.svg')
 
     // Apply Content-Security-Policy
     // panel.webview.cspSource comes from the webview object
-    // debt: load codicon ourselves.
     panel.webview.html = `<!DOCTYPE html>
-    <html lang="en" data-panel-id="${panelId}">
+    <html lang="en" data-panel-id="${panelId}" data-extensions-dist-path=${extensionsDistributionWebviewPath.toString()}>
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style nonce="${nonce}">
-            @font-face {
-                font-family: 'codicon';
-                src: url(${codiconFontSource.toString()})
-            }
-        </style>
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; child-src data: ${
             panel.webview.cspSource
-        }; img-src data: vscode-resource: https:; script-src 'nonce-${nonce}'; style-src data: ${
+        }; img-src data: vscode-resource: https:; script-src ${panel.webview.cspSource}; style-src data: ${
         panel.webview.cspSource
     } vscode-resource: 'unsafe-inline' http: https: data:; connect-src 'self' http: https:; frame-src https:; font-src ${
         panel.webview.cspSource
@@ -85,7 +76,7 @@ export async function initializeSearchPanelWebview({
     </head>
     <body class="search-panel">
         <div id="root" />
-        <script nonce="${nonce}" src="${scriptSource.toString()}"></script>
+        <script type="module" src="${scriptSource.toString()}"></script>
     </body>
     </html>`
 
@@ -107,17 +98,18 @@ export function initializeSearchSidebarWebview({
 }): {
     searchSidebarAPI: Comlink.Remote<SearchSidebarAPI>
 } {
+    const webviewPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview')
+    const extensionsDistributionPath = vscode.Uri.joinPath(extensionUri, 'dist', 'extensions')
+    const extensionsDistributionWebviewPath = webviewView.webview.asWebviewUri(extensionsDistributionPath)
+
     webviewView.webview.options = {
         enableScripts: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist', 'webview')],
+        localResourceRoots: [webviewPath, extensionsDistributionPath],
     }
-
-    const webviewPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview')
 
     const scriptSource = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'searchSidebar.js'))
     const cssModuleSource = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'searchSidebar.css'))
     const styleSource = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'style.css'))
-    const codiconFontSource = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'codicon.ttf'))
 
     const { proxy, expose, panelId } = createEndpointsForWebview(webviewView)
 
@@ -128,18 +120,11 @@ export function initializeSearchSidebarWebview({
     Comlink.expose(extensionCoreAPI, expose)
 
     // Apply Content-Security-Policy
-    // debt: load codicon ourselves.
     webviewView.webview.html = `<!DOCTYPE html>
-    <html lang="en" data-panel-id="${panelId}" data-instance-url=${endpointSetting()}>
+    <html lang="en" data-panel-id="${panelId}" data-instance-url=${endpointSetting()} data-extensions-dist-path=${extensionsDistributionWebviewPath.toString()}>
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            @font-face {
-                font-family: 'codicon';
-                src: url(${codiconFontSource.toString()})
-            }
-        </style>
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; child-src data: ${
             webviewView.webview.cspSource
         }; worker-src blob: data:; img-src data: https:; script-src blob: https:; style-src 'unsafe-inline' ${
@@ -151,7 +136,7 @@ export function initializeSearchSidebarWebview({
     </head>
     <body class="search-sidebar">
         <div id="root" />
-        <script src="${scriptSource.toString()}"></script>
+        <script type="module" src="${scriptSource.toString()}"></script>
     </body>
     </html>`
 
@@ -169,12 +154,12 @@ export function initializeHelpSidebarWebview({
 }): {
     helpSidebarAPI: Comlink.Remote<HelpSidebarAPI>
 } {
+    const webviewPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview')
+
     webviewView.webview.options = {
         enableScripts: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'dist', 'webview')],
+        localResourceRoots: [webviewPath],
     }
-
-    const webviewPath = vscode.Uri.joinPath(extensionUri, 'dist', 'webview')
 
     const scriptSource = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'helpSidebar.js'))
     const cssModuleSource = webviewView.webview.asWebviewUri(vscode.Uri.joinPath(webviewPath, 'helpSidebar.css'))
@@ -202,20 +187,11 @@ export function initializeHelpSidebarWebview({
         <link rel="stylesheet" href="${cssModuleSource.toString()}" />
     </head>
         <div id="root" />
-        <script src="${scriptSource.toString()}"></script>
+        <script type="module" src="${scriptSource.toString()}"></script>
     </body>
     </html>`
 
     return {
         helpSidebarAPI,
     }
-}
-
-export function getNonce(): string {
-    let text = ''
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-    for (let index = 0; index < 32; index++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length))
-    }
-    return text
 }

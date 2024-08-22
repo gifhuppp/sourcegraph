@@ -1,13 +1,20 @@
-import { storiesOf } from '@storybook/react'
+import type { Meta, StoryFn, Decorator } from '@storybook/react'
 import { noop } from 'lodash'
+
+import { SearchPatternType } from '@sourcegraph/shared/src/graphql-operations'
 
 import { WebStory } from '../../../components/WebStory'
 
 import { NotebookFileBlockInputs } from './NotebookFileBlockInputs'
 
-const { add } = storiesOf('web/search/notebooks/blocks/file/NotebookFileBlockInputs', module).addDecorator(story => (
-    <div className="container p-3">{story()}</div>
-))
+const decorator: Decorator = story => <div className="container p-3">{story()}</div>
+
+const config: Meta = {
+    title: 'web/search/notebooks/blocks/file/NotebookFileBlockInputs',
+    decorators: [decorator],
+}
+
+export default config
 
 const defaultProps = {
     id: 'block-id',
@@ -15,7 +22,6 @@ const defaultProps = {
     revision: 'main',
     filePath: 'client/web/file.tsx',
     lineRangeInput: '123-321',
-    sourcegraphSearchLanguageId: 'sourcegraph',
     queryInput: '',
     setQueryInput: noop,
     debouncedSetQueryInput: noop,
@@ -24,7 +30,11 @@ const defaultProps = {
     lineRange: null,
     onLineRangeChange: noop,
     editor: undefined,
-    setEditor: noop,
+    onEditorCreated: noop,
+    isSourcegraphDotCom: false,
+    patternType: SearchPatternType.standard,
 }
 
-add('default', () => <WebStory>{webProps => <NotebookFileBlockInputs {...webProps} {...defaultProps} />}</WebStory>)
+export const Default: StoryFn = () => (
+    <WebStory>{webProps => <NotebookFileBlockInputs {...webProps} {...defaultProps} />}</WebStory>
+)

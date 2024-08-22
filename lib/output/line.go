@@ -14,6 +14,9 @@ type FancyLine struct {
 
 	// Prefix can be set to prepend some content to this fancy line.
 	Prefix string
+	// Prompt can be set to indicate this line is a prompt (should not be followed by a
+	// new line).
+	Prompt bool
 }
 
 // Line creates a new FancyLine without a format string.
@@ -39,12 +42,12 @@ func Linef(emoji string, style Style, format string, a ...any) FancyLine {
 
 // Emoji creates a new FancyLine with an emoji prefix.
 func Emoji(emoji string, s string) FancyLine {
-	return Line(emoji, nil, s)
+	return Line(emoji, StyleReset, s)
 }
 
-// Emoji creates a new FancyLine with an emoji prefix and style.
+// Emoji creates a new FancyLine with an emoji prefix and format string.
 func Emojif(emoji string, s string, a ...any) FancyLine {
-	return Linef(emoji, nil, s, a...)
+	return Linef(emoji, StyleReset, s, a...)
 }
 
 // Styled creates a new FancyLine with style.
@@ -66,5 +69,10 @@ func (fl FancyLine) write(w io.Writer, caps capabilities) {
 	}
 
 	fmt.Fprintf(w, "%s"+fl.format+"%s", caps.formatArgs(append(append([]any{fl.style}, fl.args...), StyleReset))...)
-	_, _ = w.Write([]byte("\n"))
+	if fl.Prompt {
+		// Add whitespace for user input
+		_, _ = w.Write([]byte(" "))
+	} else {
+		_, _ = w.Write([]byte("\n"))
+	}
 }

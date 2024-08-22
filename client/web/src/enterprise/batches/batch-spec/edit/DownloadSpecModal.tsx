@@ -1,19 +1,19 @@
 import React from 'react'
 
+import { mdiClose } from '@mdi/js'
 import { VisuallyHidden } from '@reach/visually-hidden'
-import CloseIcon from 'mdi-react/CloseIcon'
 
 import { CodeSnippet } from '@sourcegraph/branded/src/components/CodeSnippet'
-import { Button, Link, Modal, H3, H4, Text } from '@sourcegraph/wildcard'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { Button, Link, Modal, H3, H4, Text, Icon } from '@sourcegraph/wildcard'
 
 import { BatchSpecDownloadLink, getFileName } from '../../BatchSpec'
 
 import styles from './DownloadSpecModal.module.scss'
 
-export interface DownloadSpecModalProps {
+export interface DownloadSpecModalProps extends TelemetryV2Props {
     name: string
     originalInput: string
-    isLightTheme: boolean
     setIsDownloadSpecModalOpen: (condition: boolean) => void
     setDownloadSpecModalDismissed: (condition: boolean) => void
 }
@@ -21,9 +21,9 @@ export interface DownloadSpecModalProps {
 export const DownloadSpecModal: React.FunctionComponent<React.PropsWithChildren<DownloadSpecModalProps>> = ({
     name,
     originalInput,
-    isLightTheme,
     setIsDownloadSpecModalOpen,
     setDownloadSpecModalDismissed,
+    telemetryRecorder,
 }) => (
     <Modal
         onDismiss={() => {
@@ -41,14 +41,14 @@ export const DownloadSpecModal: React.FunctionComponent<React.PropsWithChildren<
                 }}
             >
                 <VisuallyHidden>Close</VisuallyHidden>
-                <CloseIcon className={styles.icon} />
+                <Icon className={styles.icon} svgPath={mdiClose} inline={false} aria-hidden={true} />
             </Button>
         </div>
 
         <div className={styles.container}>
             <div className={styles.left}>
                 <Text>
-                    Use the <Link to="https://docs.sourcegraph.com/cli">Sourcegraph CLI (src) </Link>
+                    Use the <Link to="/help/cli">Sourcegraph CLI (src) </Link>
                     to run this batch change locally.
                 </Text>
 
@@ -71,7 +71,7 @@ export const DownloadSpecModal: React.FunctionComponent<React.PropsWithChildren<
                         <span className="text-monospace">batch</span> command allows to run batch specification files
                         using Docker.
                     </Text>
-                    <Link to="https://docs.sourcegraph.com/cli">Download src-cli</Link>
+                    <Link to="/help/cli">Download src-cli</Link>
                 </div>
             </div>
         </div>
@@ -79,7 +79,7 @@ export const DownloadSpecModal: React.FunctionComponent<React.PropsWithChildren<
             <Button className="p-0" onClick={() => setDownloadSpecModalDismissed(true)} variant="link">
                 Don't show this again
             </Button>
-            <div>
+            <div className="ml-auto">
                 <Button
                     className="mr-2"
                     outline={true}
@@ -93,8 +93,8 @@ export const DownloadSpecModal: React.FunctionComponent<React.PropsWithChildren<
                 <BatchSpecDownloadLink
                     name={name}
                     originalInput={originalInput}
-                    isLightTheme={isLightTheme}
                     asButton={false}
+                    telemetryRecorder={telemetryRecorder}
                 >
                     <Button
                         variant="primary"

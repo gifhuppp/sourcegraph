@@ -1,57 +1,61 @@
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
+
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 
 import { WebStory } from '../../../../components/WebStory'
-import {
-    COMPLETED_BATCH_SPEC,
-    COMPLETED_WITH_ERRORS_BATCH_SPEC,
-    EXECUTING_BATCH_SPEC,
-    FAILED_BATCH_SPEC,
-    mockBatchChange,
-} from '../batch-spec.mock'
+import { EXECUTING_BATCH_SPEC, mockBatchChange } from '../batch-spec.mock'
 import { BatchSpecContextProvider } from '../BatchSpecContext'
 
-import { ActionsMenu } from './ActionsMenu'
+import { ActionsMenu, ActionsMenuMode } from './ActionsMenu'
 
-const { add } = storiesOf('web/batches/batch-spec/execute/ActionsMenu', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
 
-add('executing', () => (
+const config: Meta = {
+    title: 'web/batches/batch-spec/execute/ActionsMenu',
+    decorators: [decorator],
+}
+
+export default config
+
+export const Preview: StoryFn = () => (
     <WebStory>
-        {props => (
+        {() => (
             <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={EXECUTING_BATCH_SPEC}>
-                <ActionsMenu {...props} />
+                <ActionsMenu defaultMode={ActionsMenuMode.Preview} telemetryRecorder={noOpTelemetryRecorder} />
             </BatchSpecContextProvider>
         )}
     </WebStory>
-))
+)
 
-add('failed', () => (
+export const Actions: StoryFn = () => (
     <WebStory>
-        {props => (
-            <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={FAILED_BATCH_SPEC}>
-                <ActionsMenu {...props} />
+        {() => (
+            <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={EXECUTING_BATCH_SPEC}>
+                <ActionsMenu defaultMode={ActionsMenuMode.Actions} telemetryRecorder={noOpTelemetryRecorder} />
             </BatchSpecContextProvider>
         )}
     </WebStory>
-))
+)
 
-add('completed', () => (
+export const ActionsOnlyClose: StoryFn = () => (
     <WebStory>
-        {props => (
-            <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={COMPLETED_BATCH_SPEC}>
-                <ActionsMenu {...props} />
+        {() => (
+            <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={EXECUTING_BATCH_SPEC}>
+                <ActionsMenu defaultMode={ActionsMenuMode.ActionsOnlyClose} telemetryRecorder={noOpTelemetryRecorder} />
             </BatchSpecContextProvider>
         )}
     </WebStory>
-))
+)
 
-add('completed with errors', () => (
+export const ActionsWithPreview: StoryFn = () => (
     <WebStory>
-        {props => (
-            <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={COMPLETED_WITH_ERRORS_BATCH_SPEC}>
-                <ActionsMenu {...props} />
+        {() => (
+            <BatchSpecContextProvider batchChange={mockBatchChange()} batchSpec={EXECUTING_BATCH_SPEC}>
+                <ActionsMenu
+                    defaultMode={ActionsMenuMode.ActionsWithPreview}
+                    telemetryRecorder={noOpTelemetryRecorder}
+                />
             </BatchSpecContextProvider>
         )}
     </WebStory>
-))
+)

@@ -1,4 +1,4 @@
-import type { SearchPatternType } from '@sourcegraph/search'
+import type { SearchPatternType } from '../graphql-operations'
 
 import type { ActionName } from './java-to-js-bridge'
 import type { Request } from './js-to-java-bridge'
@@ -8,19 +8,21 @@ declare global {
     interface Window {
         initializeSourcegraph: () => Promise<void>
         callJava: (request: Request) => Promise<object>
-        callJS: (action: ActionName, data: string, callback: (result: string) => void) => void
+        callJS: (action: ActionName, data: string, callback: (result: string) => void) => Promise<void>
     }
 }
 
 export interface Theme {
     isDarkTheme: boolean
-    buttonColor: string
+    intelliJTheme: { [key: string]: string }
 }
 
 export interface PluginConfig {
     instanceURL: string
-    isGlobbingEnabled: boolean
     accessToken: string | null
+    customRequestHeadersAsString: string | null
+    pluginVersion: string
+    anonymousUserId: string
 }
 
 export interface Search {

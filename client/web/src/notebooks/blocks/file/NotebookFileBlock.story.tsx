@@ -1,17 +1,23 @@
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 import { noop } from 'lodash'
 import { of } from 'rxjs'
 
-import { extensionsController, HIGHLIGHTED_FILE_LINES_LONG } from '@sourcegraph/shared/src/testing/searchTestHelpers'
+import { SearchPatternType } from '@sourcegraph/shared/src/graphql-operations'
+import { HIGHLIGHTED_FILE_LINES_LONG } from '@sourcegraph/shared/src/testing/searchTestHelpers'
 
-import { FileBlockInput } from '../..'
+import type { FileBlockInput } from '../..'
 import { WebStory } from '../../../components/WebStory'
 
 import { NotebookFileBlock } from './NotebookFileBlock'
 
-const { add } = storiesOf('web/search/notebooks/blocks/file/NotebookFileBlock', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+const config: Meta = {
+    title: 'web/search/notebooks/blocks/file/NotebookFileBlock',
+    decorators: [decorator],
+}
+
+export default config
 
 const noopBlockCallbacks = {
     onRunBlock: noop,
@@ -21,6 +27,7 @@ const noopBlockCallbacks = {
     onDeleteBlock: noop,
     onMoveBlock: noop,
     onDuplicateBlock: noop,
+    onNewBlock: noop,
 }
 
 const fileBlockInput: FileBlockInput = {
@@ -30,7 +37,7 @@ const fileBlockInput: FileBlockInput = {
     lineRange: null,
 }
 
-add('default', () => (
+export const Default: StoryFn = () => (
     <WebStory>
         {props => (
             <NotebookFileBlock
@@ -38,19 +45,18 @@ add('default', () => (
                 {...noopBlockCallbacks}
                 id="file-block-1"
                 input={fileBlockInput}
-                output={of(HIGHLIGHTED_FILE_LINES_LONG[0])}
+                output={of(HIGHLIGHTED_FILE_LINES_LONG)}
                 isSelected={true}
                 isReadOnly={false}
-                isOtherBlockSelected={false}
+                showMenu={false}
                 isSourcegraphDotCom={false}
-                extensionsController={extensionsController}
-                sourcegraphSearchLanguageId="sourcegraph"
+                patternType={SearchPatternType.standard}
             />
         )}
     </WebStory>
-))
+)
 
-add('edit mode', () => (
+export const EditMode: StoryFn = () => (
     <WebStory>
         {props => (
             <NotebookFileBlock
@@ -58,19 +64,20 @@ add('edit mode', () => (
                 {...noopBlockCallbacks}
                 id="file-block-1"
                 input={{ repositoryName: '', filePath: '', revision: 'main', lineRange: { startLine: 1, endLine: 10 } }}
-                output={of(HIGHLIGHTED_FILE_LINES_LONG[0])}
+                output={of(HIGHLIGHTED_FILE_LINES_LONG)}
                 isSelected={true}
                 isReadOnly={false}
-                isOtherBlockSelected={false}
+                showMenu={false}
                 isSourcegraphDotCom={false}
-                extensionsController={extensionsController}
-                sourcegraphSearchLanguageId="sourcegraph"
+                patternType={SearchPatternType.standard}
             />
         )}
     </WebStory>
-))
+)
 
-add('error fetching file', () => (
+EditMode.storyName = 'edit mode'
+
+export const ErrorFetchingFile: StoryFn = () => (
     <WebStory>
         {props => (
             <NotebookFileBlock
@@ -81,11 +88,12 @@ add('error fetching file', () => (
                 output={of(new Error('File not found'))}
                 isSelected={true}
                 isReadOnly={false}
-                isOtherBlockSelected={false}
+                showMenu={false}
                 isSourcegraphDotCom={false}
-                extensionsController={extensionsController}
-                sourcegraphSearchLanguageId="sourcegraph"
+                patternType={SearchPatternType.standard}
             />
         )}
     </WebStory>
-))
+)
+
+ErrorFetchingFile.storyName = 'error fetching file'

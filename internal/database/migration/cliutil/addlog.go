@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/inconshreveable/log15"
 	"github.com/urfave/cli/v2"
+
+	"github.com/sourcegraph/log"
 
 	"github.com/sourcegraph/sourcegraph/internal/database/migration/definition"
 	"github.com/sourcegraph/sourcegraph/lib/output"
@@ -13,9 +14,10 @@ import (
 
 func AddLog(commandName string, factory RunnerFactory, outFactory OutputFactory) *cli.Command {
 	schemaNameFlag := &cli.StringFlag{
-		Name:     "db",
-		Usage:    "The target `schema` to modify.",
+		Name:     "schema",
+		Usage:    "The target `schema` to modify. Possible values are 'frontend', 'codeintel' and 'codeinsights'",
 		Required: true,
+		Aliases:  []string{"db"},
 	}
 	versionFlag := &cli.IntFlag{
 		Name:     "version",
@@ -30,17 +32,18 @@ func AddLog(commandName string, factory RunnerFactory, outFactory OutputFactory)
 
 	action := makeAction(outFactory, func(ctx context.Context, cmd *cli.Context, out *output.Output) error {
 		var (
-			schemaName  = schemaNameFlag.Get(cmd)
+			schemaName  = TranslateSchemaNames(schemaNameFlag.Get(cmd), out)
 			versionFlag = versionFlag.Get(cmd)
 			upFlag      = upFlag.Get(cmd)
+			logger      = log.Scoped("up")
 		)
 
-		_, store, err := setupStore(ctx, factory, schemaName)
+		store, err := setupStore(ctx, factory, schemaName)
 		if err != nil {
 			return err
 		}
 
-		log15.Info("Writing new completed migration log", "schema", schemaName, "version", versionFlag, "up", upFlag)
+		logger.Info("Writing new completed migration log", log.String("schema", schemaName), log.Int("version", versionFlag), log.Bool("up", upFlag))
 		return store.WithMigrationLog(ctx, definition.Definition{ID: versionFlag}, upFlag, func() error { return nil })
 	})
 

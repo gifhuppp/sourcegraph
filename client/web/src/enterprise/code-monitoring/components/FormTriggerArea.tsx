@@ -1,25 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { mdiCheck, mdiHelpCircle, mdiOpenInNew, mdiRadioboxBlank } from '@mdi/js'
+import { VisuallyHidden } from '@reach/visually-hidden'
 import classNames from 'classnames'
-import CheckIcon from 'mdi-react/CheckIcon'
-import HelpCircleIcon from 'mdi-react/HelpCircleIcon'
-import OpenInNewIcon from 'mdi-react/OpenInNewIcon'
-import RadioboxBlankIcon from 'mdi-react/RadioboxBlankIcon'
 
-import { QueryState } from '@sourcegraph/search'
-import { LazyMonacoQueryInput } from '@sourcegraph/search-ui'
+import { LazyQueryInputFormControl } from '@sourcegraph/branded'
+import type { QueryState } from '@sourcegraph/shared/src/search'
 import { FilterType, resolveFilter, validateFilter } from '@sourcegraph/shared/src/search/query/filters'
 import { scanSearchQuery } from '@sourcegraph/shared/src/search/query/scanner'
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
+import { useSettingsCascade } from '@sourcegraph/shared/src/settings/settings'
 import { buildSearchURLQuery } from '@sourcegraph/shared/src/util/url'
-import { Button, Link, Card, Icon, Checkbox, Code, H2, H3 } from '@sourcegraph/wildcard'
+import { Button, Card, Checkbox, Code, H3, Icon, Link, Tooltip } from '@sourcegraph/wildcard'
 
-import { SearchPatternType } from '../../../graphql-operations'
-import { useExperimentalFeatures } from '../../../stores'
+import type { SearchPatternType } from '../../../graphql-operations'
+import { defaultPatternTypeFromSettings } from '../../../util/settings'
 
 import styles from './FormTriggerArea.module.scss'
 
-interface TriggerAreaProps extends ThemeProps {
+interface TriggerAreaProps {
     query: string
     onQueryChange: (query: string) => void
     triggerCompleted: boolean
@@ -32,7 +30,10 @@ interface TriggerAreaProps extends ThemeProps {
 }
 
 const isDiffOrCommit = (value: string): boolean => value === 'diff' || value === 'commit'
-const isLiteralOrRegexp = (value: string): boolean => value === 'literal' || value === 'regexp'
+
+// Code monitors don't support pattern type "structural"
+const isValidPatternType = (value: string): boolean =>
+    value === 'keyword' || value === 'standard' || value === 'literal' || value === 'regexp'
 
 const ValidQueryChecklistItem: React.FunctionComponent<
     React.PropsWithChildren<{
@@ -53,17 +54,15 @@ const ValidQueryChecklistItem: React.FunctionComponent<
             <div className="d-flex align-items-center mb-1">
                 {checked ? (
                     <Icon
-                        role="img"
                         className={classNames('text-success', styles.checklistCheckbox)}
                         aria-hidden={true}
-                        as={CheckIcon}
+                        svgPath={mdiCheck}
                     />
                 ) : (
                     <Icon
-                        role="img"
                         className={classNames(styles.checklistCheckbox, styles.checklistCheckboxUnchecked)}
                         aria-hidden={true}
-                        as={RadioboxBlankIcon}
+                        svgPath={mdiRadioboxBlank}
                     />
                 )}
 
@@ -73,14 +72,15 @@ const ValidQueryChecklistItem: React.FunctionComponent<
                     <>
                         <span className="sr-only"> {hint}</span>
 
-                        <span data-tooltip={hint} data-placement="bottom" className="d-inline-flex">
-                            <Icon
-                                role="img"
-                                className={classNames(styles.checklistHint, checked && styles.checklistHintFaded)}
-                                aria-hidden={true}
-                                as={HelpCircleIcon}
-                            />
-                        </span>
+                        <Tooltip content={hint} placement="bottom">
+                            <span className="d-inline-flex">
+                                <Icon
+                                    className={classNames(styles.checklistHint, checked && styles.checklistHintFaded)}
+                                    aria-hidden={true}
+                                    svgPath={mdiHelpCircle}
+                                />
+                            </span>
+                        </Tooltip>
                     </>
                 )}
             </div>
@@ -97,13 +97,20 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
     cardClassName,
     cardBtnClassName,
     cardLinkClassName,
-    isLightTheme,
     isSourcegraphDotCom,
 }) => {
-    const [showQueryForm, setShowQueryForm] = useState(startExpanded)
-    const toggleQueryForm: React.FormEventHandler = useCallback(event => {
-        event.preventDefault()
-        setShowQueryForm(show => !show)
+    const [expanded, setExpanded] = useState(startExpanded)
+
+    // Focus card when collapsing
+    const collapsedCard = useRef<HTMLButtonElement>(null)
+    const closeCard = useCallback((): void => {
+        setExpanded(false)
+
+        // Use timeout to wait for render to complete after calling setExpanded
+        // so that collapsedCard is rendered and can be focused.
+        setTimeout(() => {
+            collapsedCard.current?.focus()
+        }, 0)
     }, [])
 
     const [isValidQuery, setIsValidQuery] = useState(false)
@@ -112,13 +119,15 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
     const [hasPatternTypeFilter, setHasPatternTypeFilter] = useState(false)
     const [hasValidPatternTypeFilter, setHasValidPatternTypeFilter] = useState(true)
     const isTriggerQueryComplete = useMemo(
-        () => isValidQuery && hasTypeDiffOrCommitFilter && hasRepoFilter && hasValidPatternTypeFilter,
-        [hasRepoFilter, hasTypeDiffOrCommitFilter, hasValidPatternTypeFilter, isValidQuery]
+        () =>
+            isValidQuery &&
+            hasTypeDiffOrCommitFilter &&
+            (!isSourcegraphDotCom || hasRepoFilter) &&
+            hasValidPatternTypeFilter,
+        [hasRepoFilter, hasTypeDiffOrCommitFilter, hasValidPatternTypeFilter, isValidQuery, isSourcegraphDotCom]
     )
 
     const [queryState, setQueryState] = useState<QueryState>({ query: query || '' })
-
-    const editorComponent = useExperimentalFeatures(features => features.editor ?? 'monaco')
 
     useEffect(() => {
         const value = queryState.query
@@ -157,8 +166,7 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
                     validateFilter(filter.field.value, filter.value)
             )
 
-            // No explicit patternType filter means we default
-            // to patternType:literal
+            // No explicit patternType filter means we use the default pattern type
             hasValidPatternTypeFilter =
                 !hasPatternTypeFilter ||
                 filters.some(
@@ -166,7 +174,7 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
                         filter.type === 'filter' &&
                         resolveFilter(filter.field.value)?.type === FilterType.patterntype &&
                         filter.value &&
-                        isLiteralOrRegexp(filter.value.value)
+                        isValidPatternType(filter.value.value)
                 )
         }
 
@@ -176,23 +184,25 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
         setHasValidPatternTypeFilter(hasValidPatternTypeFilter)
     }, [queryState.query])
 
+    const defaultPatternType: SearchPatternType = defaultPatternTypeFromSettings(useSettingsCascade())
+
     const completeForm: React.FormEventHandler = useCallback(
         event => {
             event.preventDefault()
-            setShowQueryForm(false)
+            closeCard()
             setTriggerCompleted(true)
-            onQueryChange(`${queryState.query}${hasPatternTypeFilter ? '' : ' patternType:literal'}`)
+            onQueryChange(`${queryState.query}${hasPatternTypeFilter ? '' : ` patternType:${defaultPatternType}`}`)
         },
-        [setTriggerCompleted, setShowQueryForm, onQueryChange, queryState, hasPatternTypeFilter]
+        [closeCard, setTriggerCompleted, onQueryChange, queryState.query, hasPatternTypeFilter, defaultPatternType]
     )
 
     const cancelForm: React.FormEventHandler = useCallback(
         event => {
             event.preventDefault()
-            setShowQueryForm(false)
+            closeCard()
             setQueryState({ query })
         },
-        [setShowQueryForm, query]
+        [closeCard, query]
     )
 
     const derivedInputClassName = useMemo(() => {
@@ -207,8 +217,8 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
 
     return (
         <>
-            <H3 as={H2}>Trigger</H3>
-            {showQueryForm && (
+            <H3>Trigger</H3>
+            {expanded && (
                 <Card className={classNames(cardClassName, 'p-3')}>
                     <div className="font-weight-bold">When there are new search results</div>
                     <span className="text-muted">
@@ -216,59 +226,42 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
                     </span>
                     <span className="mt-4">Search query</span>
                     <div>
-                        <div className={classNames(styles.queryInput, 'my-2')}>
+                        <div className="my-2">
                             <div
-                                className={classNames(
-                                    'form-control',
-                                    styles.queryInputField,
-                                    'test-trigger-input',
-                                    `test-${derivedInputClassName}`
-                                )}
+                                className={classNames(`test-${derivedInputClassName}`)}
                                 data-testid="trigger-query-edit"
                             >
-                                <LazyMonacoQueryInput
-                                    editorComponent={editorComponent}
-                                    isLightTheme={isLightTheme}
-                                    patternType={SearchPatternType.literal}
+                                <LazyQueryInputFormControl
+                                    className="test-trigger-input"
+                                    patternType={defaultPatternType}
                                     isSourcegraphDotCom={isSourcegraphDotCom}
                                     caseSensitive={false}
                                     queryState={queryState}
                                     onChange={setQueryState}
-                                    globbing={false}
                                     preventNewLine={true}
                                     autoFocus={true}
                                 />
                             </div>
-                            <div className={styles.queryInputPreviewLink}>
-                                <Link
-                                    to={`/search?${buildSearchURLQuery(
-                                        queryState.query,
-                                        SearchPatternType.literal,
-                                        false
-                                    )}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="test-preview-link"
-                                >
-                                    Preview results{' '}
-                                    <Icon
-                                        role="img"
-                                        aria-hidden={true}
-                                        className={classNames('ml-1', styles.queryInputPreviewLinkIcon)}
-                                        as={OpenInNewIcon}
-                                    />
-                                </Link>
-                            </div>
+                            <Link
+                                to={`/search?${buildSearchURLQuery(queryState.query, defaultPatternType, false)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="test-preview-link d-flex align-items-center flex-gap-1 my-1"
+                            >
+                                Preview results{' '}
+                                <Icon aria-label="Open in new window" className="ml-1" svgPath={mdiOpenInNew} />
+                            </Link>
                         </div>
 
                         <ul className={classNames(styles.checklist, 'mb-4')}>
                             <li>
                                 <ValidQueryChecklistItem
                                     checked={hasValidPatternTypeFilter}
-                                    hint="Code monitors support literal and regex search. Searches are literal by default."
+                                    hint={`Code monitors support keyword, standard, literal and regex search. The default is ${defaultPatternType}`}
                                     dataTestid="patterntype-checkbox"
                                 >
-                                    Is <Code>patternType:literal</Code> or <Code>patternType:regexp</Code>
+                                    Is <Code>patternType:keyword</Code>, <Code>standard</Code>, <Code>literal</Code> or{' '}
+                                    <Code>regexp</Code>
                                 </ValidQueryChecklistItem>
                             </li>
                             <li>
@@ -280,15 +273,18 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
                                     Contains a <Code>type:diff</Code> or <Code>type:commit</Code> filter
                                 </ValidQueryChecklistItem>
                             </li>
-                            <li>
-                                <ValidQueryChecklistItem
-                                    checked={hasRepoFilter}
-                                    hint="Code monitors can watch a maximum of 50 repos at a time. Target your query with repo: filters to narrow down your search."
-                                    dataTestid="repo-checkbox"
-                                >
-                                    Contains a <Code>repo:</Code> filter
-                                </ValidQueryChecklistItem>
-                            </li>
+                            {/* Enforce repo filter on sourcegraph.com because otherwise it's too easy to generate a lot of load */}
+                            {isSourcegraphDotCom && (
+                                <li>
+                                    <ValidQueryChecklistItem
+                                        checked={hasRepoFilter}
+                                        hint="The repo: filter is required to narrow down your search."
+                                        dataTestid="repo-checkbox"
+                                    >
+                                        Contains a <Code>repo:</Code> filter
+                                    </ValidQueryChecklistItem>
+                                </li>
+                            )}
                             <li>
                                 <ValidQueryChecklistItem checked={isValidQuery} dataTestid="valid-checkbox">
                                     Is a valid search query
@@ -313,16 +309,17 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
                     </div>
                 </Card>
             )}
-            {!showQueryForm && (
+            {!expanded && (
                 <Card
                     data-testid="trigger-button"
                     as={Button}
                     className={classNames('test-trigger-button', cardBtnClassName)}
-                    aria-label="Edit trigger: When there are new search results"
-                    onClick={toggleQueryForm}
+                    onClick={() => setExpanded(true)}
+                    ref={collapsedCard}
                 >
-                    <div className="d-flex justify-content-between align-items-center w-100">
+                    <div className="d-flex flex-wrap justify-content-between align-items-center w-100">
                         <div>
+                            <VisuallyHidden>Edit trigger: </VisuallyHidden>
                             <div
                                 className={classNames(
                                     'font-weight-bold',
@@ -347,7 +344,7 @@ export const FormTriggerArea: React.FunctionComponent<React.PropsWithChildren<Tr
                             )}
                         </div>
                         {triggerCompleted && (
-                            <Button variant="link" as="div">
+                            <Button variant="link" as="div" className="p-0">
                                 Edit
                             </Button>
                         )}

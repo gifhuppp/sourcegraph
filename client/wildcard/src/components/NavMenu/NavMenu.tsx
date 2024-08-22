@@ -1,10 +1,10 @@
-import React, { forwardRef, ReactNode } from 'react'
+import React, { forwardRef, type ReactNode } from 'react'
 
-import * as H from 'history'
-import { MdiReactIconProps } from 'mdi-react'
+import type * as H from 'history'
+import type { MdiReactIconProps } from 'mdi-react'
 
-import { ForwardReferenceComponent, Position } from '../..'
-import { ButtonProps } from '../Button'
+import type { ForwardReferenceComponent, Position } from '../..'
+import type { ButtonProps } from '../Button'
 import { Icon } from '../Icon'
 import { Link } from '../Link'
 import {
@@ -13,12 +13,12 @@ import {
     MenuHeader,
     MenuButton,
     MenuList,
-    MenuListProps,
-    MenuItemProps,
+    type MenuListProps,
+    type MenuItemProps,
     MenuText,
     MenuItem,
     MenuLink,
-    MenuHeadingType,
+    type MenuHeadingType,
 } from '../Menu'
 
 export interface NavMenuSectionProps {
@@ -66,9 +66,9 @@ interface NavItemProps extends Omit<MenuItemProps, 'children' | 'onSelect'> {
 const NavMenuItem = forwardRef(({ content, prefixIcon, suffixIcon, onSelect, to, itemAs, ...rest }, reference) => {
     const contentWithIcon = (
         <>
-            {prefixIcon && <Icon role="img" aria-hidden={true} as={prefixIcon} className="mr-1" />}
+            {prefixIcon && <Icon aria-hidden={true} as={prefixIcon} className="mr-1" />}
             {content}
-            {suffixIcon && <Icon role="img" aria-hidden={true} as={suffixIcon} className="ml-1" />}
+            {suffixIcon && <Icon aria-hidden={true} as={suffixIcon} className="ml-1" />}
         </>
     )
 

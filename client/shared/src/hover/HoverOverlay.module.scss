@@ -128,10 +128,6 @@
     text-align: center;
 }
 
-.action + .action {
-    margin-left: 0.25rem;
-}
-
 .overlay-logo {
     margin-left: 1rem;
 }
@@ -155,4 +151,14 @@
     // Because hover-empty is `<small>` we need bigger margin-top to align it with the close button.
     margin-top: var(--hover-overlay-content-margin-top);
     margin-bottom: 0.5rem;
+}
+
+.buttons {
+    display: flex;
+    align-items: center;
+    margin-top: var(--hover-overlay-content-margin-top);
+}
+
+.buttons > *:first-child {
+    margin-left: 0;
 }

@@ -1,16 +1,16 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
 import {
-    BatchSpecExecutionFields,
+    type BatchSpecExecutionFields,
     BatchSpecState,
     BatchSpecWorkspaceResolutionState,
-    EditBatchChangeFields,
+    type EditBatchChangeFields,
 } from '../../../graphql-operations'
 
 import { useExecuteBatchSpec } from './edit/useExecuteBatchSpec'
-import { WorkspacePreviewFilters } from './edit/workspaces-preview/useWorkspaces'
-import { useWorkspacesPreview, UseWorkspacesPreviewResult } from './edit/workspaces-preview/useWorkspacesPreview'
-import { useBatchSpecCode, UseBatchSpecCodeResult } from './useBatchSpecCode'
+import type { WorkspacePreviewFilters } from './edit/workspaces-preview/useWorkspaces'
+import { useWorkspacesPreview, type UseWorkspacesPreviewResult } from './edit/workspaces-preview/useWorkspacesPreview'
+import { useBatchSpecCode, type UseBatchSpecCodeResult } from './useBatchSpecCode'
 
 export interface BatchSpecContextErrors {
     // Errors from trying to automatically apply updates to the batch spec code.
@@ -122,10 +122,12 @@ export const BatchSpecContextProvider = <BatchSpecFields extends MinimalBatchSpe
     const isBatchSpecApplied = useMemo(() => currentSpec.id === batchSpec.id, [currentSpec.id, batchSpec.id])
 
     const editor = useBatchSpecCode(batchSpec.originalInput, batchChange.name)
-    const { handleCodeChange, isValid, isServerStale } = editor
+    const { handleCodeChange, isValid, isServerStale: isServerBatchSpecYAMLStale } = editor
 
     const [filters, setFilters] = useState<WorkspacePreviewFilters>()
     const [executionOptions, setExecutionOptions] = useState<ExecutionOptions>(DEFAULT_EXECUTION_OPTIONS)
+
+    const isServerStale = isServerBatchSpecYAMLStale
 
     // Manage the batch spec that was last submitted to the backend for the workspaces preview.
     const workspacesPreview = useWorkspacesPreview(batchSpec.id, {
@@ -134,6 +136,7 @@ export const BatchSpecContextProvider = <BatchSpecFields extends MinimalBatchSpe
         noCache: executionOptions.runWithoutCache,
         onComplete: refetchBatchChange,
         filters,
+        batchChange: batchChange.id,
     })
     const {
         isInProgress: isWorkspacesPreviewInProgress,
@@ -141,6 +144,7 @@ export const BatchSpecContextProvider = <BatchSpecFields extends MinimalBatchSpe
         error: previewError,
         clearError: clearPreviewError,
         hasPreviewed,
+        preview,
     } = workspacesPreview
 
     // Disable triggering a new preview if the batch spec code is invalid or if we're
@@ -165,9 +169,11 @@ export const BatchSpecContextProvider = <BatchSpecFields extends MinimalBatchSpe
     const isExecuting = batchSpec.state === BatchSpecState.QUEUED || batchSpec.state === BatchSpecState.PROCESSING
 
     // Manage submitting a batch spec for execution.
-    const { executeBatchSpec, isLoading: isExecutionRequestInProgress, error: executeError } = useExecuteBatchSpec(
-        batchSpec.id
-    )
+    const {
+        executeBatchSpec,
+        isLoading: isExecutionRequestInProgress,
+        error: executeError,
+    } = useExecuteBatchSpec(batchSpec.id, executionOptions.runWithoutCache)
 
     // Disable triggering a new execution if any of the following are true:
     // - The batch spec code is invalid.
@@ -219,11 +225,13 @@ export const BatchSpecContextProvider = <BatchSpecFields extends MinimalBatchSpe
                     execute: executeBatchSpec,
                     isExecutionDisabled,
                     executionOptions,
+                    isServerStale,
                     setExecutionOptions,
                     ...testState?.editor,
                 },
                 workspacesPreview: {
                     ...workspacesPreview,
+                    preview,
                     filters,
                     setFilters,
                     isPreviewDisabled,
@@ -250,7 +258,7 @@ export const useBatchSpecContext = <
     BatchSpecFields extends MinimalBatchSpecFields = MinimalBatchSpecFields
 >(): BatchSpecContextState<BatchSpecFields> => {
     const context = React.useContext<BatchSpecContextState<BatchSpecFields>>(
-        (BatchSpecContext as unknown) as React.Context<BatchSpecContextState<BatchSpecFields>>
+        BatchSpecContext as unknown as React.Context<BatchSpecContextState<BatchSpecFields>>
     )
     if (!context) {
         throw new Error('useBatchSpecContext must be used under BatchSpecContextProvider')

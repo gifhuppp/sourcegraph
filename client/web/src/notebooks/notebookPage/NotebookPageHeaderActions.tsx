@@ -1,16 +1,12 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
+import { mdiStar, mdiStarOutline, mdiLock, mdiDotsHorizontal, mdiWeb, mdiDomain } from '@mdi/js'
 import classNames from 'classnames'
-import DomainIcon from 'mdi-react/DomainIcon'
-import DotsHorizontalIcon from 'mdi-react/DotsHorizontalIcon'
-import LockIcon from 'mdi-react/LockIcon'
-import StarIcon from 'mdi-react/StarIcon'
-import StarOutlineIcon from 'mdi-react/StarOutlineIcon'
-import WebIcon from 'mdi-react/WebIcon'
-import { Observable } from 'rxjs'
+import type { Observable } from 'rxjs'
 import { catchError, switchMap, tap } from 'rxjs/operators'
 
-import { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
+import { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import {
     Menu,
     MenuButton,
@@ -24,22 +20,22 @@ import {
     Icon,
 } from '@sourcegraph/wildcard'
 
-import { AuthenticatedUser } from '../../auth'
-import { NotebookFields } from '../../graphql-operations'
+import type { AuthenticatedUser } from '../../auth'
+import type { NotebookFields } from '../../graphql-operations'
 import { OrgAvatar } from '../../org/OrgAvatar'
-import {
+import type {
     deleteNotebook as _deleteNotebook,
     createNotebookStar as _createNotebookStar,
     deleteNotebookStar as _deleteNotebookStar,
 } from '../backend'
 
 import { DeleteNotebookModal } from './DeleteNotebookModal'
-import { ShareOption } from './NotebookShareOptionsDropdown'
+import type { ShareOption } from './NotebookShareOptionsDropdown'
 import { ShareNotebookModal } from './ShareNotebookModal'
 
 import styles from './NotebookPageHeaderActions.module.scss'
 
-export interface NotebookPageHeaderActionsProps extends TelemetryProps {
+export interface NotebookPageHeaderActionsProps extends TelemetryProps, TelemetryV2Props {
     isSourcegraphDotCom: boolean
     authenticatedUser: AuthenticatedUser | null
     namespace: NotebookFields['namespace']
@@ -70,6 +66,7 @@ export const NotebookPageHeaderActions: React.FunctionComponent<
     createNotebookStar,
     deleteNotebookStar,
     telemetryService,
+    telemetryRecorder,
 }) => {
     const [showShareModal, setShowShareModal] = useState(false)
     const toggleShareModal = useCallback(() => setShowShareModal(show => !show), [setShowShareModal])
@@ -89,11 +86,24 @@ export const NotebookPageHeaderActions: React.FunctionComponent<
             return <></>
         }
         if (selectedShareOption.namespaceType === 'User') {
-            const PublicIcon = isSourcegraphDotCom ? WebIcon : DomainIcon
             return selectedShareOption.isPublic ? (
-                <PublicIcon className="mr-1" size="1.15rem" />
+                <Icon
+                    className="mr-1"
+                    svgPath={isSourcegraphDotCom ? mdiWeb : mdiDomain}
+                    inline={false}
+                    aria-hidden={true}
+                    height="1.15rem"
+                    width="1.15rem"
+                />
             ) : (
-                <LockIcon className="mr-1" size="1.15rem" />
+                <Icon
+                    className="mr-1"
+                    svgPath={mdiLock}
+                    inline={false}
+                    aria-hidden={true}
+                    height="1.15rem"
+                    width="1.15rem"
+                />
             )
         }
         return (
@@ -111,6 +121,7 @@ export const NotebookPageHeaderActions: React.FunctionComponent<
                 createNotebookStar={createNotebookStar}
                 deleteNotebookStar={deleteNotebookStar}
                 telemetryService={telemetryService}
+                telemetryRecorder={telemetryRecorder}
             />
             {authenticatedUser && viewerCanManage && namespace && selectedShareOption && (
                 <>
@@ -127,6 +138,7 @@ export const NotebookPageHeaderActions: React.FunctionComponent<
                         isSourcegraphDotCom={isSourcegraphDotCom}
                         toggleModal={toggleShareModal}
                         telemetryService={telemetryService}
+                        telemetryRecorder={telemetryRecorder}
                         authenticatedUser={authenticatedUser}
                         selectedShareOption={selectedShareOption}
                         setSelectedShareOption={setSelectedShareOption}
@@ -139,13 +151,14 @@ export const NotebookPageHeaderActions: React.FunctionComponent<
                     notebookId={notebookId}
                     deleteNotebook={deleteNotebook}
                     telemetryService={telemetryService}
+                    telemetryRecorder={telemetryRecorder}
                 />
             )}
         </div>
     )
 }
 
-interface NotebookSettingsDropdownProps extends TelemetryProps {
+interface NotebookSettingsDropdownProps extends TelemetryProps, TelemetryV2Props {
     notebookId: string
     deleteNotebook: typeof _deleteNotebook
 }
@@ -154,6 +167,7 @@ const NotebookSettingsDropdown: React.FunctionComponent<React.PropsWithChildren<
     notebookId,
     deleteNotebook,
     telemetryService,
+    telemetryRecorder,
 }) => {
     const [showDeleteModal, setShowDeleteModal] = useState(false)
     const toggleDeleteModal = useCallback(() => setShowDeleteModal(show => !show), [setShowDeleteModal])
@@ -162,7 +176,7 @@ const NotebookSettingsDropdown: React.FunctionComponent<React.PropsWithChildren<
         <>
             <Menu>
                 <MenuButton outline={true} aria-label="Notebook action">
-                    <DotsHorizontalIcon />
+                    <Icon svgPath={mdiDotsHorizontal} inline={false} aria-hidden={true} />
                 </MenuButton>
                 <MenuList position={Position.bottomEnd}>
                     <MenuHeader>Settings</MenuHeader>
@@ -183,12 +197,13 @@ const NotebookSettingsDropdown: React.FunctionComponent<React.PropsWithChildren<
                 toggleDeleteModal={toggleDeleteModal}
                 deleteNotebook={deleteNotebook}
                 telemetryService={telemetryService}
+                telemetryRecorder={telemetryRecorder}
             />
         </>
     )
 }
 
-interface NotebookStarsButtonProps extends TelemetryProps {
+interface NotebookStarsButtonProps extends TelemetryProps, TelemetryV2Props {
     notebookId: string
     disabled: boolean
     starsCount: number
@@ -205,6 +220,7 @@ const NotebookStarsButton: React.FunctionComponent<React.PropsWithChildren<Noteb
     createNotebookStar,
     deleteNotebookStar,
     telemetryService,
+    telemetryRecorder,
 }) => {
     const [starsCount, setStarsCount] = useState(initialStarsCount)
     const [viewerHasStarred, setViewerHasStarred] = useState(initialViewerHasStarred)
@@ -216,6 +232,7 @@ const NotebookStarsButton: React.FunctionComponent<React.PropsWithChildren<Noteb
                     // Immediately update the UI.
                     tap(viewerHasStarred => {
                         telemetryService.log(`SearchNotebook${viewerHasStarred ? 'Remove' : 'Add'}Star`)
+                        telemetryRecorder.recordEvent('notebook.stars', viewerHasStarred ? 'remove' : 'add')
                         if (viewerHasStarred) {
                             setStarsCount(starsCount => starsCount - 1)
                             setViewerHasStarred(() => false)
@@ -240,6 +257,7 @@ const NotebookStarsButton: React.FunctionComponent<React.PropsWithChildren<Noteb
                 initialStarsCount,
                 initialViewerHasStarred,
                 telemetryService,
+                telemetryRecorder,
             ]
         )
     )
@@ -254,13 +272,12 @@ const NotebookStarsButton: React.FunctionComponent<React.PropsWithChildren<Noteb
         >
             {viewerHasStarred ? (
                 <Icon
-                    role="img"
                     aria-hidden={true}
                     className={classNames(styles.notebookStarIcon, styles.notebookStarIconActive)}
-                    as={StarIcon}
+                    svgPath={mdiStar}
                 />
             ) : (
-                <Icon role="img" aria-hidden={true} className={styles.notebookStarIcon} as={StarOutlineIcon} />
+                <Icon aria-hidden={true} className={styles.notebookStarIcon} svgPath={mdiStarOutline} />
             )}
             <span className="ml-1">{starsCount}</span>
         </Button>

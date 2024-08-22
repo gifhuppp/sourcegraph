@@ -1,17 +1,18 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 
+import { mdiPlus } from '@mdi/js'
 import classNames from 'classnames'
-import PlusIcon from 'mdi-react/PlusIcon'
 
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
-import { Link, Button, CardBody, Card, Icon, H2, H3, H4, Text } from '@sourcegraph/wildcard'
-
-import { CodeMonitorSignUpLink } from './CodeMonitoringSignUpLink'
+import type { AuthenticatedUser } from '@sourcegraph/shared/src/auth'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { EVENT_LOGGER } from '@sourcegraph/shared/src/telemetry/web/eventLogger'
+import { useIsLightTheme } from '@sourcegraph/shared/src/theme'
+import { Button, Card, CardBody, H2, H3, H4, Icon, Link, Text } from '@sourcegraph/wildcard'
 
 import styles from './CodeMonitoringGettingStarted.module.scss'
 
-interface CodeMonitoringGettingStartedProps extends ThemeProps {
-    isSignedIn: boolean
+interface CodeMonitoringGettingStartedProps extends TelemetryV2Props {
+    authenticatedUser: AuthenticatedUser | null
 }
 
 interface ExampleCodeMonitor {
@@ -63,12 +64,18 @@ const createCodeMonitorUrl = (example: ExampleCodeMonitor): string => {
 
 export const CodeMonitoringGettingStarted: React.FunctionComponent<
     React.PropsWithChildren<CodeMonitoringGettingStartedProps>
-> = ({ isLightTheme, isSignedIn }) => {
+> = ({ authenticatedUser, telemetryRecorder }) => {
+    const isLightTheme = useIsLightTheme()
     const assetsRoot = window.context?.assetsRoot || ''
+
+    const logExampleMonitorClicked = useCallback(() => {
+        EVENT_LOGGER.log('CodeMonitoringExampleMonitorClicked')
+        telemetryRecorder.recordEvent('codeMonitor.example', 'click')
+    }, [telemetryRecorder])
 
     return (
         <div>
-            <Card className={classNames('mb-5 flex-column flex-lg-row', styles.hero)}>
+            <Card className={classNames('mb-4 flex-column flex-lg-row', styles.hero)}>
                 <img
                     src={`${assetsRoot}/img/codemonitoring-illustration-${isLightTheme ? 'light' : 'dark'}.svg`}
                     alt="A code monitor observes a depcreated library being used in code and sends an email alert."
@@ -86,23 +93,17 @@ export const CodeMonitoringGettingStarted: React.FunctionComponent<
                         <li>Identify when bad patterns are committed </li>
                         <li>Identify use of deprecated libraries</li>
                     </ul>
-                    {isSignedIn ? (
+                    {authenticatedUser && (
                         <Button to="/code-monitoring/new" className={styles.createButton} variant="primary" as={Link}>
-                            <Icon role="img" aria-hidden={true} className="mr-2" as={PlusIcon} />
+                            <Icon aria-hidden={true} className="mr-2" svgPath={mdiPlus} />
                             Create a code monitor
                         </Button>
-                    ) : (
-                        <CodeMonitorSignUpLink
-                            className={styles.createButton}
-                            eventName="SignUpPLGMonitor_GettingStarted"
-                            text="Get started with code monitors"
-                        />
                     )}
                 </div>
             </Card>
+
             <div>
                 <H3 className="mb-3">Example code monitors</H3>
-
                 <div className={classNames('mb-3', styles.startingPointsContainer)}>
                     {exampleCodeMonitors.map(monitor => (
                         <div className={styles.startingPoint} key={monitor.title}>
@@ -110,7 +111,9 @@ export const CodeMonitoringGettingStarted: React.FunctionComponent<
                                 <CardBody className="d-flex flex-column">
                                     <H3>{monitor.title}</H3>
                                     <Text className="text-muted flex-grow-1">{monitor.description}</Text>
-                                    <Link to={createCodeMonitorUrl(monitor)}>Create copy of monitor</Link>
+                                    <Link to={createCodeMonitorUrl(monitor)} onClick={logExampleMonitorClicked}>
+                                        Create copy of monitor
+                                    </Link>
                                 </CardBody>
                             </Card>
                         </div>
@@ -143,31 +146,17 @@ export const CodeMonitoringGettingStarted: React.FunctionComponent<
                             </Link>
                         </div>
                     </div>
-                    {isSignedIn ? (
-                        <div className="col-4">
-                            <div>
-                                <H4>Questions and feedback</H4>
-                                <Text className="text-muted">
-                                    Have a question or idea about code monitoring? We want to hear your feedback!
-                                </Text>
-                                <Link to="mailto:feedback@sourcegraph.com" className="link">
-                                    Share your thoughts
-                                </Link>
-                            </div>
+                    <div className="col-4">
+                        <div>
+                            <H4>Questions and feedback</H4>
+                            <Text className="text-muted">
+                                Have a question or idea about code monitoring? We want to hear your feedback!
+                            </Text>
+                            <Link to="mailto:feedback@sourcegraph.com" className="link">
+                                Share your thoughts
+                            </Link>
                         </div>
-                    ) : (
-                        <div className="col-4">
-                            <Card className={styles.signUpCard}>
-                                <H4>Free for registered users</H4>
-                                <Text className="text-muted">Sign up and build your first code monitor today.</Text>
-                                <CodeMonitorSignUpLink
-                                    className={styles.createButton}
-                                    eventName="SignUpPLGMonitor_GettingStarted"
-                                    text="Get started"
-                                />
-                            </Card>
-                        </div>
-                    )}
+                    </div>
                 </div>
             </div>
         </div>

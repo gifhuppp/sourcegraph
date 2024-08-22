@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import VisuallyHidden from '@reach/visually-hidden'
-import ChevronDownIcon from 'mdi-react/ChevronDownIcon'
+import { mdiChevronDown } from '@mdi/js'
+import { VisuallyHidden } from '@reach/visually-hidden'
+import classNames from 'classnames'
 
 import {
     ProductStatusBadge,
@@ -12,9 +13,13 @@ import {
     MenuList,
     Position,
     MenuItem,
+    MenuDivider,
     H4,
     Text,
+    Icon,
 } from '@sourcegraph/wildcard'
+
+import { useBatchChangesRolloutWindowConfig } from './backend'
 
 import styles from './DropdownButton.module.scss'
 
@@ -43,10 +48,8 @@ export interface Props {
     actions: Action[]
     defaultAction?: number
     disabled?: boolean
-    dropdownMenuPosition?: 'left' | 'right'
     onLabel?: (label: string | undefined) => void
     placeholder?: string
-    tooltip?: string
 }
 
 export const DropdownButton: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
@@ -55,7 +58,6 @@ export const DropdownButton: React.FunctionComponent<React.PropsWithChildren<Pro
     disabled,
     onLabel,
     placeholder = 'Select action',
-    tooltip,
 }) => {
     const [isDisabled, setIsDisabled] = useState(!!disabled)
 
@@ -135,14 +137,13 @@ export const DropdownButton: React.FunctionComponent<React.PropsWithChildren<Pro
                         className="text-nowrap"
                         onClick={onTriggerAction}
                         disabled={isDisabled || actions.length === 0 || selectedAction === undefined}
-                        data-tooltip={tooltip}
                         variant="primary"
                     >
                         {label}
                     </Button>
                     {actions.length > 1 && (
                         <MenuButton variant="primary" className={styles.dropdownButton}>
-                            <ChevronDownIcon />
+                            <Icon svgPath={mdiChevronDown} inline={false} aria-hidden={true} />
                             <VisuallyHidden>Actions</VisuallyHidden>
                         </MenuButton>
                     )}
@@ -152,7 +153,7 @@ export const DropdownButton: React.FunctionComponent<React.PropsWithChildren<Pro
                         {actions.map((action, index) => (
                             <React.Fragment key={action.type}>
                                 <DropdownItem action={action} setSelectedType={onSelectedTypeSelect} />
-                                {index !== actions.length - 1 && <div className="dropdown-divider" />}
+                                {index !== actions.length - 1 && <MenuDivider />}
                             </React.Fragment>
                         ))}
                     </MenuList>
@@ -171,12 +172,19 @@ const DropdownItem: React.FunctionComponent<React.PropsWithChildren<DropdownItem
     action,
     setSelectedType,
 }) => {
+    const { rolloutWindowConfig, loading } = useBatchChangesRolloutWindowConfig()
     const onSelect = useCallback(() => {
         setSelectedType(action.type)
     }, [setSelectedType, action.type])
+    const shouldDisplayRolloutInfo = action.type === 'publish' && rolloutWindowConfig && rolloutWindowConfig.length > 0
+
     return (
         <MenuItem className={styles.menuListItem} onSelect={onSelect} disabled={action.disabled}>
-            <H4 className="mb-1">
+            <H4
+                className={classNames('mb-1', {
+                    'text-muted': action.disabled,
+                })}
+            >
                 {action.dropdownTitle}
                 {action.experimental && (
                     <>
@@ -186,7 +194,18 @@ const DropdownItem: React.FunctionComponent<React.PropsWithChildren<DropdownItem
                 )}
             </H4>
             <Text className="text-wrap text-muted mb-0">
-                <small>{action.dropdownDescription}</small>
+                <small>
+                    {action.dropdownDescription}
+                    {!loading && shouldDisplayRolloutInfo && (
+                        <>
+                            <br />
+                            <strong>
+                                Note: Rollout windows have been set up by the admin. This means that some of the
+                                selected changesets won't be processed until a time in the future.
+                            </strong>
+                        </>
+                    )}
+                </small>
             </Text>
         </MenuItem>
     )

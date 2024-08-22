@@ -1,11 +1,11 @@
 import React from 'react'
 
+import { mdiCheckCircle, mdiCloseCircle, mdiTimerSand } from '@mdi/js'
 import classNames from 'classnames'
-import CheckCircleIcon from 'mdi-react/CheckCircleIcon'
-import CloseCircleIcon from 'mdi-react/CloseCircleIcon'
-import TimerSandIcon from 'mdi-react/TimerSandIcon'
 
-import { ExternalChangesetFields, ChangesetCheckState } from '../../../../graphql-operations'
+import { Icon, Tooltip } from '@sourcegraph/wildcard'
+
+import { type ExternalChangesetFields, ChangesetCheckState } from '../../../../graphql-operations'
 
 export interface ChangesetCheckStatusCellProps {
     className?: string
@@ -16,12 +16,15 @@ export const ChangesetCheckStatusCell: React.FunctionComponent<
     React.PropsWithChildren<ChangesetCheckStatusCellProps>
 > = ({ className, checkState }) => {
     switch (checkState) {
-        case ChangesetCheckState.PENDING:
+        case ChangesetCheckState.PENDING: {
             return <ChangesetCheckStatusPending className={className} />
-        case ChangesetCheckState.PASSED:
+        }
+        case ChangesetCheckState.PASSED: {
             return <ChangesetCheckStatusPassed className={className} />
-        case ChangesetCheckState.FAILED:
+        }
+        case ChangesetCheckState.FAILED: {
             return <ChangesetCheckStatusFailed className={className} />
+        }
     }
 }
 
@@ -34,8 +37,12 @@ export const ChangesetCheckStatusPending: React.FunctionComponent<React.PropsWit
             className
         )}
     >
-        <TimerSandIcon data-tooltip="Check state is pending" />
-        <span className="text-muted">Pending</span>
+        <Tooltip content="Some checks are still pending">
+            <Icon svgPath={mdiTimerSand} aria-label="Some checks are still pending" inline={false} />
+        </Tooltip>
+        <span aria-hidden={true} className="text-muted">
+            Pending
+        </span>
     </div>
 )
 export const ChangesetCheckStatusPassed: React.FunctionComponent<React.PropsWithChildren<{ className?: string }>> = ({
@@ -47,8 +54,12 @@ export const ChangesetCheckStatusPassed: React.FunctionComponent<React.PropsWith
             className
         )}
     >
-        <CheckCircleIcon data-tooltip="All checks complete" />
-        <span className="text-muted">Passed</span>
+        <Tooltip content="All checks succeeded">
+            <Icon svgPath={mdiCheckCircle} aria-label="All checks succeeded" inline={false} />
+        </Tooltip>
+        <span aria-hidden={true} className="text-muted">
+            Passed
+        </span>
     </div>
 )
 export const ChangesetCheckStatusFailed: React.FunctionComponent<React.PropsWithChildren<{ className?: string }>> = ({
@@ -60,7 +71,11 @@ export const ChangesetCheckStatusFailed: React.FunctionComponent<React.PropsWith
             className
         )}
     >
-        <CloseCircleIcon data-tooltip="Some checks failed" />
-        <span className="text-muted">Failed</span>
+        <Tooltip content="Some checks failed">
+            <Icon svgPath={mdiCloseCircle} aria-label="Some checks failed" inline={false} />
+        </Tooltip>
+        <span aria-hidden={true} className="text-muted">
+            Failed
+        </span>
     </div>
 )

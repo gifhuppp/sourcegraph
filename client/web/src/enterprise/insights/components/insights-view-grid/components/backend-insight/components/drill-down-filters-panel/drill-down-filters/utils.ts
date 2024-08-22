@@ -1,63 +1,34 @@
-import {
-    SeriesDisplayOptionsInput,
-    SeriesSortDirection,
-    SeriesSortMode,
-} from '../../../../../../../../../graphql-operations'
-import { DEFAULT_SERIES_DISPLAY_OPTIONS } from '../../../../../../../core'
-import { SeriesDisplayOptions, SeriesDisplayOptionsInputRequired } from '../../../../../../../core/types/insight/common'
-import { Validator } from '../../../../../../form/hooks/useField'
+import { SeriesSortDirection, SeriesSortMode } from '../../../../../../../../../graphql-operations'
+import type { InsightSeriesDisplayOptions } from '../../../../../../../core/types/insight/common'
 
-export const validRegexp: Validator<string> = (value = '') => {
-    if (value.trim() === '') {
-        return
-    }
+export const getSerializedSortAndLimitFilter = (seriesDisplayOptions: InsightSeriesDisplayOptions): string => {
+    const { sortOptions, limit, numSamples } = seriesDisplayOptions
 
-    try {
-        new RegExp(value)
-
-        return
-    } catch {
-        return 'Must be a valid regular expression string'
-    }
-}
-
-interface InsightRepositoriesFilter {
-    include: string
-    exclude: string
-}
-
-export function getSerializedRepositoriesFilter(filter: InsightRepositoriesFilter): string {
-    const { include, exclude } = filter
-    const includeString = include ? `repo:${include}` : ''
-    const excludeString = exclude ? `-repo:${exclude}` : ''
-
-    return `${includeString} ${excludeString}`.trim()
-}
-
-export const getSortPreview = (seriesDisplayOptions: SeriesDisplayOptionsInputRequired): string => {
-    const {
-        sortOptions: { mode, direction },
-        limit,
-    } = seriesDisplayOptions
-    const ascending = direction === SeriesSortDirection.ASC
+    const ascending = sortOptions.direction === SeriesSortDirection.ASC
+    const mode = sortOptions.mode
     let sortBy
 
     switch (mode) {
-        case SeriesSortMode.LEXICOGRAPHICAL:
-            sortBy = ascending ? 'A-Z' : 'Z-A'
-            break
-        case SeriesSortMode.RESULT_COUNT:
+        case undefined:
+        case SeriesSortMode.RESULT_COUNT: {
             sortBy = `by result count ${ascending ? 'low to high' : 'high to low'}`
             break
-        case SeriesSortMode.DATE_ADDED:
+        }
+        case SeriesSortMode.LEXICOGRAPHICAL: {
+            sortBy = ascending ? 'A-Z' : 'Z-A'
+            break
+        }
+        case SeriesSortMode.DATE_ADDED: {
             sortBy = `by date ${ascending ? 'newest to oldest' : 'oldest to newest'}`
             break
-        default:
+        }
+        default: {
             sortBy = 'ERROR: Unknown sort type.'
             break
+        }
     }
 
-    return `Sorted ${sortBy}, limit ${limit} series`
+    return `Sorted ${sortBy}, limit ${limit ?? 20} series, max point per series ${numSamples ?? 90}`
 }
 
 type InsightContextsFilter = string
@@ -71,22 +42,15 @@ export function getSerializedSearchContextFilter(
     return withContextPrefix ? `context:${filterValue}` : filterValue
 }
 
-// To simplify logic on the front end we ensure that a value is always proved
-export const parseSeriesDisplayOptions = (
-    options?: SeriesDisplayOptions | SeriesDisplayOptionsInput
-): SeriesDisplayOptionsInputRequired => {
-    if (!options) {
-        return DEFAULT_SERIES_DISPLAY_OPTIONS
-    }
+interface InsightRepositoriesFilter {
+    include: string
+    exclude: string
+}
 
-    const limit = options.limit || DEFAULT_SERIES_DISPLAY_OPTIONS.limit
-    const sortOptions = options.sortOptions || DEFAULT_SERIES_DISPLAY_OPTIONS.sortOptions
+export function getSerializedRepositoriesFilter(filter: InsightRepositoriesFilter): string {
+    const { include, exclude } = filter
+    const includeString = include ? `repo:${include}` : ''
+    const excludeString = exclude ? `-repo:${exclude}` : ''
 
-    return {
-        limit,
-        sortOptions: {
-            mode: sortOptions.mode || DEFAULT_SERIES_DISPLAY_OPTIONS.sortOptions.mode,
-            direction: sortOptions.direction || DEFAULT_SERIES_DISPLAY_OPTIONS.sortOptions.direction,
-        },
-    }
+    return `${includeString} ${excludeString}`.trim()
 }

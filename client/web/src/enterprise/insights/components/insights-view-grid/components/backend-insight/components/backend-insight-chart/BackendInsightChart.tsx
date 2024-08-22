@@ -1,15 +1,16 @@
-import React, { Dispatch, SetStateAction } from 'react'
+import React, { type FC, type MouseEvent, useMemo } from 'react'
 
 import { ParentSize } from '@visx/responsive'
 import classNames from 'classnames'
 import useResizeObserver from 'use-resize-observer'
 
-import { useDebounce } from '@sourcegraph/wildcard'
+import { Button, BarChart, LegendItem, LegendList, LegendItemPoint, ScrollBox } from '@sourcegraph/wildcard'
 
-import { getLineColor, LegendItem, LegendList, ScrollBox } from '../../../../../../../../charts'
-import { BackendInsightData } from '../../../../../../core'
+import type { UseSeriesToggleReturn } from '../../../../../../../../insights/utils/use-series-toggle'
+import type { BackendInsightData, BackendInsightSeries, InsightContent } from '../../../../../../core'
+import { InsightContentType } from '../../../../../../core/types/insight/common'
 import { SeriesBasedChartTypes, SeriesChart } from '../../../../../views'
-import { BackendAlertOverlay } from '../backend-insight-alerts/BackendInsightAlerts'
+import { BackendAlertOverlay, InsightSeriesIncompleteAlert } from '../backend-insight-alerts/BackendInsightAlerts'
 
 import styles from './BackendInsightChart.module.scss'
 
@@ -41,87 +42,165 @@ export const MINIMAL_SERIES_FOR_ASIDE_LEGEND = 3
 interface BackendInsightChartProps<Datum> extends BackendInsightData {
     locked: boolean
     zeroYAxisMin: boolean
-    isSeriesSelected: (id: string) => boolean
-    isSeriesHovered: (id: string) => boolean
+    seriesToggleState: UseSeriesToggleReturn
     className?: string
-    onLegendItemClick: (id: string) => void
     onDatumClick: () => void
-    setHoveredId: Dispatch<SetStateAction<string | undefined>>
 }
 
 export function BackendInsightChart<Datum>(props: BackendInsightChartProps<Datum>): React.ReactElement {
-    const {
-        locked,
-        isFetchingHistoricalData,
-        content,
-        zeroYAxisMin,
-        isSeriesSelected,
-        isSeriesHovered,
-        className,
-        onDatumClick,
-        onLegendItemClick,
-        setHoveredId,
-    } = props
-    const { ref, width = 0 } = useDebounce(useResizeObserver(), 100)
+    const { data, isFetchingHistoricalData, locked, zeroYAxisMin, seriesToggleState, className, onDatumClick } = props
 
-    const hasViewManySeries = content.series.length > MINIMAL_SERIES_FOR_ASIDE_LEGEND
+    const { ref, width = 0 } = useResizeObserver()
+
+    const isEmptyDataset = useMemo(() => hasNoData(data), [data])
+    const hasViewManySeries = isManyKeysInsight(data)
     const hasEnoughXSpace = width >= MINIMAL_HORIZONTAL_LAYOUT_WIDTH
-
     const isHorizontalMode = hasViewManySeries && hasEnoughXSpace
+    const isSeriesLikeInsight = data.type === InsightContentType.Series
 
     return (
-        <div ref={ref} className={classNames(className, styles.root, { [styles.rootHorizontal]: isHorizontalMode })}>
-            {width && (
+        <div
+            ref={ref}
+            className={classNames(className, styles.root, {
+                [styles.rootHorizontal]: isHorizontalMode,
+                [styles.rootWithLegend]: isSeriesLikeInsight,
+            })}
+        >
+            {width > 0 && (
                 <>
                     <ParentSize
                         debounceTime={0}
                         enableDebounceLeadingCall={true}
                         className={styles.responsiveContainer}
                     >
-                        {parent => (
-                            <>
-                                <BackendAlertOverlay
-                                    hasNoData={content.series.every(series => series.data.length === 0)}
-                                    isFetchingHistoricalData={isFetchingHistoricalData}
-                                    className={styles.alertOverlay}
-                                />
+                        {parent =>
+                            // Render chart element only when we have real non-empty parent sizes
+                            // otherwise, the first chart render happens on a not fully rendered
+                            // element that causes the element's flickering
+                            parent.height * parent.width !== 0 && (
+                                <>
+                                    <BackendAlertOverlay
+                                        hasNoData={isEmptyDataset}
+                                        isFetchingHistoricalData={isFetchingHistoricalData}
+                                        className={styles.alertOverlay}
+                                    />
 
-                                <SeriesChart
-                                    type={SeriesBasedChartTypes.Line}
-                                    width={parent.width}
-                                    height={parent.height}
-                                    locked={locked}
-                                    className={styles.chart}
-                                    onDatumClick={onDatumClick}
-                                    isSeriesSelected={isSeriesSelected}
-                                    isSeriesHovered={isSeriesHovered}
-                                    zeroYAxisMin={zeroYAxisMin}
-                                    {...content}
-                                />
-                            </>
-                        )}
+                                    {data.type === InsightContentType.Series ? (
+                                        <SeriesChart
+                                            type={SeriesBasedChartTypes.Line}
+                                            width={parent.width}
+                                            height={parent.height}
+                                            locked={locked}
+                                            className={styles.chart}
+                                            onDatumClick={onDatumClick}
+                                            zeroYAxisMin={zeroYAxisMin}
+                                            seriesToggleState={seriesToggleState}
+                                            series={data.series}
+                                        />
+                                    ) : (
+                                        <BarChart
+                                            aria-label="Bar chart"
+                                            width={parent.width}
+                                            height={parent.height}
+                                            {...data.content}
+                                        />
+                                    )}
+                                </>
+                            )
+                        }
                     </ParentSize>
 
-                    <ScrollBox className={styles.legendListContainer} onMouseLeave={() => setHoveredId(undefined)}>
-                        <LegendList className={styles.legendList}>
-                            {content.series.map(series => (
-                                <LegendItem
-                                    key={series.id as string}
-                                    color={getLineColor(series)}
-                                    name={series.name}
-                                    selected={isSeriesSelected(`${series.id}`)}
-                                    hovered={isSeriesHovered(`${series.id}`)}
-                                    className={styles.legendListItem}
-                                    onClick={() => onLegendItemClick(`${series.id}`)}
-                                    onMouseEnter={() => setHoveredId(`${series.id}`)}
-                                    // prevent accidental dragging events
-                                    onMouseDown={event => event.stopPropagation()}
-                                />
-                            ))}
-                        </LegendList>
-                    </ScrollBox>
+                    {isSeriesLikeInsight && (
+                        <ScrollBox className={styles.legendListContainer}>
+                            <SeriesLegends series={data.series} seriesToggleState={seriesToggleState} />
+                        </ScrollBox>
+                    )}
                 </>
             )}
         </div>
+    )
+}
+
+const isManyKeysInsight = (data: InsightContent<any>): boolean => {
+    if (data.type === InsightContentType.Series) {
+        return data.series.length > MINIMAL_SERIES_FOR_ASIDE_LEGEND
+    }
+
+    return data.content.data.length > MINIMAL_SERIES_FOR_ASIDE_LEGEND
+}
+
+const hasNoData = (data: InsightContent<any>): boolean => {
+    if (data.type === InsightContentType.Series) {
+        return data.series.every(series => series.data.length === 0)
+    }
+
+    // If all datum have zero matches render no data layout. We need to
+    // handle it explicitly on the frontend since backend returns manually
+    // defined series with empty points in case of no matches for generated
+    // series.
+    return data.content.data.every(datum => datum.value === 0)
+}
+
+interface SeriesLegendsProps {
+    series: BackendInsightSeries<any>[]
+    seriesToggleState: UseSeriesToggleReturn
+}
+
+const SeriesLegends: FC<SeriesLegendsProps> = props => {
+    const { series, seriesToggleState } = props
+
+    // Non-interactive static legend list
+    if (series.length <= 1) {
+        return (
+            <LegendList className={styles.legendList}>
+                {series.map(item => (
+                    <LegendItem key={item.id as string} color={item.color}>
+                        <LegendItemPoint color={item.color} />
+                        {item.name}
+                        {item.alerts.length > 0 && <InsightSeriesIncompleteAlert series={item} />}
+                    </LegendItem>
+                ))}
+            </LegendList>
+        )
+    }
+
+    const { setHoveredId, isSeriesSelected, isSeriesHovered, toggle } = seriesToggleState
+
+    // Interactive legends list
+    return (
+        <LegendList
+            className={styles.legendList}
+            // Prevent accidental dragging events
+            onMouseDown={(event: MouseEvent<HTMLElement>) => event.stopPropagation()}
+        >
+            {series.map(item => (
+                <LegendItem
+                    key={item.id as string}
+                    active={isSeriesHovered(`${item.id}`) || isSeriesSelected(`${item.id}`)}
+                >
+                    <Button
+                        role="checkbox"
+                        aria-checked={isSeriesSelected(`${item.id}`)}
+                        className={classNames(styles.legendListItem, styles.legendListItemInteractive)}
+                        onPointerEnter={() => setHoveredId(`${item.id}`)}
+                        onPointerLeave={() => setHoveredId(undefined)}
+                        onFocus={() => setHoveredId(`${item.id}`)}
+                        onBlur={() => setHoveredId(undefined)}
+                        onClick={() =>
+                            toggle(
+                                `${item.id}`,
+                                series.map(series => `${series.id}`)
+                            )
+                        }
+                    >
+                        <LegendItemPoint color={item.color} />
+                        {item.name}
+                    </Button>
+                    {item.alerts.length > 0 && (
+                        <InsightSeriesIncompleteAlert series={item} className={styles.legendIncompleteAlert} />
+                    )}
+                </LegendItem>
+            ))}
+        </LegendList>
     )
 }

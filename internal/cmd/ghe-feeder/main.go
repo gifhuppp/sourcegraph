@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -14,12 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inconshreveable/log15"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/schollz/progressbar/v3"
 	"golang.org/x/time/rate"
+
+	"github.com/sourcegraph/log"
+	"github.com/sourcegraph/sourcegraph/internal/ratelimit"
 )
 
 var (
@@ -56,22 +57,20 @@ func main() {
 	scratchDir := flag.String("scratchDir", "", "scratch dir where to temporarily clone repositories")
 	limitPump := flag.Int64("limit", math.MaxInt64, "limit processing to this many repos (for debugging)")
 	skipNumLines := flag.Int64("skip", 0, "skip this many lines from input")
-	logFilepath := flag.String("logfile", "feeder.log", "path to a log file")
 	apiCallsPerSec := flag.Float64("apiCallsPerSec", 100.0, "how many API calls per sec to destination GHE")
 	numSimultaneousPushes := flag.Int("numSimultaneousPushes", 10, "number of simultaneous GHE pushes")
 	cloneRepoTimeout := flag.Duration("cloneRepoTimeout", time.Minute*3, "how long to wait for a repo to clone")
 	numCloningAttempts := flag.Int("numCloningAttempts", 5, "number of cloning attempts before giving up")
 	numSimultaneousClones := flag.Int("numSimultaneousClones", 10, "number of simultaneous github.com clones")
+	forceOrg := flag.String("force-org", "", "always use this org when adding repositories")
 
 	help := flag.Bool("help", false, "Show help")
 
 	flag.Parse()
 
-	logHandler, err := log15.FileHandler(*logFilepath, log15.LogfmtFormat())
-	if err != nil {
-		log.Fatal(err)
-	}
-	log15.Root().SetHandler(logHandler)
+	liblog := log.Init(log.Resource{Name: "ghe-feeder"})
+	defer liblog.Sync()
+	logger := log.Scoped("main")
 
 	if *help || len(*baseURL) == 0 || len(*token) == 0 || len(*admin) == 0 {
 		flag.PrintDefaults()
@@ -85,7 +84,7 @@ func main() {
 	if len(*scratchDir) == 0 {
 		d, err := os.MkdirTemp("", "ghe-feeder")
 		if err != nil {
-			log15.Error("failed to create scratch dir", "error", err)
+			logger.Error("failed to create scratch dir", log.Error(err))
 			os.Exit(1)
 		}
 		*scratchDir = d
@@ -93,7 +92,7 @@ func main() {
 
 	u, err := url.Parse(*baseURL)
 	if err != nil {
-		log15.Error("failed to parse base URL", "baseURL", *baseURL, "error", err)
+		logger.Error("failed to parse base URL", log.String("baseURL", *baseURL), log.Error(err))
 		os.Exit(1)
 	}
 	host := u.Host
@@ -101,20 +100,20 @@ func main() {
 	ctx := context.Background()
 	gheClient, err := newGHEClient(ctx, *baseURL, *uploadURL, *token)
 	if err != nil {
-		log15.Error("failed to create GHE client", "error", err)
+		logger.Error("failed to create GHE client", log.Error(err))
 		os.Exit(1)
 	}
 
 	fdr, err := newFeederDB(*progressFilepath)
 	if err != nil {
-		log15.Error("failed to create sqlite DB", "path", *progressFilepath, "error", err)
+		logger.Error("failed to create sqlite DB", log.String("path", *progressFilepath), log.Error(err))
 		os.Exit(1)
 	}
 
 	spinner := progressbar.Default(-1, "calculating work")
 	numLines, err := numLinesTotal(*skipNumLines)
 	if err != nil {
-		log15.Error("failed to calculate outstanding work", "error", err)
+		logger.Error("failed to calculate outstanding work", log.Error(err))
 		os.Exit(1)
 	}
 	_ = spinner.Finish()
@@ -124,7 +123,7 @@ func main() {
 	}
 
 	if numLines == 0 {
-		log15.Info("no work remaining in input")
+		logger.Info("no work remaining in input")
 		fmt.Println("no work remaining in input, exiting")
 		os.Exit(0)
 	}
@@ -138,7 +137,7 @@ func main() {
 		remaining:    numLines,
 		pipe:         work,
 		fdr:          fdr,
-		logger:       log15.New("source", "producer"),
+		logger:       logger.Scoped("producer"),
 		bar:          bar,
 		skipNumLines: *skipNumLines,
 	}
@@ -168,20 +167,20 @@ func main() {
 		_ = http.ListenAndServe(":2112", nil)
 	}()
 
-	rateLimiter := rate.NewLimiter(rate.Limit(*apiCallsPerSec), 100)
+	rateLimiter := ratelimit.NewInstrumentedLimiter("GHEFeeder", rate.NewLimiter(rate.Limit(*apiCallsPerSec), 100))
 	pushSem := make(chan struct{}, *numSimultaneousPushes)
 	cloneSem := make(chan struct{}, *numSimultaneousClones)
 
 	var wkrs []*worker
 
-	for i := 0; i < *numWorkers; i++ {
+	for i := range *numWorkers {
 		name := fmt.Sprintf("worker-%d", i)
 		wkrScratchDir := filepath.Join(*scratchDir, name)
 		err := os.MkdirAll(wkrScratchDir, 0777)
 		if err != nil {
-			log15.Error("failed to create worker scratch dir", "scratchDir", *scratchDir, "error", err)
-			os.Exit(1)
+			logger.Fatal("failed to create worker scratch dir", log.String("scratchDir", *scratchDir), log.Error(err))
 		}
+
 		wkr := &worker{
 			name:               name,
 			client:             gheClient,
@@ -191,7 +190,7 @@ func main() {
 			wg:                 &wg,
 			bar:                bar,
 			fdr:                fdr,
-			logger:             log15.New("source", name),
+			logger:             logger.Scoped(name),
 			rateLimiter:        rateLimiter,
 			admin:              *admin,
 			token:              *token,
@@ -201,14 +200,18 @@ func main() {
 			cloneRepoTimeout:   *cloneRepoTimeout,
 			numCloningAttempts: *numCloningAttempts,
 		}
+		if *forceOrg != "" {
+			wkr.currentOrg = *forceOrg
+			wkr.currentMaxRepos = math.MaxInt
+		}
+
 		wkrs = append(wkrs, wkr)
 		go wkr.run(ctx)
 	}
 
 	err = prdc.pump(ctx)
 	if err != nil {
-		log15.Error("pump failed", "error", err)
-		os.Exit(1)
+		logger.Fatal("pump failed", log.Error(err))
 	}
 	close(work)
 	wg.Wait()
@@ -217,7 +220,7 @@ func main() {
 	s := stats(wkrs, prdc)
 
 	fmt.Println(s)
-	log15.Info(s)
+	logger.Info(s)
 }
 
 func stats(wkrs []*worker, prdc *producer) string {

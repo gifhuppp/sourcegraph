@@ -7,7 +7,7 @@ import (
 	"github.com/keegancsmith/sqlf"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/sourcegraph/sourcegraph/cmd/symbols/parser"
+	"github.com/sourcegraph/sourcegraph/cmd/symbols/internal/parser"
 	"github.com/sourcegraph/sourcegraph/internal/database/batch"
 	"github.com/sourcegraph/sourcegraph/internal/search/result"
 )
@@ -109,7 +109,7 @@ func (s *store) WriteSymbols(ctx context.Context, symbolOrErrors <-chan parser.S
 	group.Go(func() error {
 		return batch.InsertValues(
 			ctx,
-			s.Handle().DB(),
+			s.Handle(),
 			"symbols",
 			batch.MaxNumSQLiteParameters,
 			[]string{

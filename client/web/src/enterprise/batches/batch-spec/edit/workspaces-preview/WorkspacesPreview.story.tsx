@@ -1,14 +1,14 @@
-import { boolean, select } from '@storybook/addon-knobs'
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 import { noop } from 'lodash'
 import { MATCH_ANY_PARAMETERS, WildcardMockLink } from 'wildcard-mock-link'
 
 import { getDocumentNode } from '@sourcegraph/http-client'
 import { BatchSpecWorkspaceResolutionState } from '@sourcegraph/shared/src/graphql-operations'
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { MockedTestProvider } from '@sourcegraph/shared/src/testing/apollo'
 
 import { WebStory } from '../../../../../components/WebStory'
-import { IMPORTING_CHANGESETS, WORKSPACES, WORKSPACE_RESOLUTION_STATUS } from '../../../create/backend'
+import { IMPORTING_CHANGESETS, WORKSPACE_RESOLUTION_STATUS, WORKSPACES } from '../../../create/backend'
 import {
     mockBatchChange,
     mockBatchSpec,
@@ -17,66 +17,82 @@ import {
     mockWorkspaceResolutionStatus,
     UNSTARTED_CONNECTION_MOCKS,
     UNSTARTED_WITH_CACHE_CONNECTION_MOCKS,
+    LARGE_SUCCESS_CONNECTION_MOCKS,
+    UNLICENSED_MOCK,
+    LICENSED_MOCK,
 } from '../../batch-spec.mock'
 import { BatchSpecContextProvider } from '../../BatchSpecContext'
 
 import { WorkspacesPreview } from './WorkspacesPreview'
 
-const { add } = storiesOf(
-    'web/batches/batch-spec/edit/workspaces-preview/WorkspacesPreview',
-    module
-).addDecorator(story => <div className="p-3 container d-flex flex-column align-items-center">{story()}</div>)
+const decorator: Decorator = story => (
+    <div className="p-3 container d-flex flex-column align-items-center">{story()}</div>
+)
 
-add('unstarted', () => (
+const config: Meta = {
+    title: 'web/batches/batch-spec/edit/workspaces-preview/WorkspacesPreview',
+    decorators: [decorator],
+}
+
+export default config
+
+export const Unstarted: StoryFn = args => (
     <WebStory>
-        {props => (
+        {() => (
             <MockedTestProvider link={new WildcardMockLink(UNSTARTED_CONNECTION_MOCKS)}>
                 <BatchSpecContextProvider
                     batchChange={mockBatchChange()}
-                    batchSpec={
-                        boolean('Valid batch spec?', true)
-                            ? mockBatchSpec()
-                            : mockBatchSpec({ originalInput: 'not-valid' })
-                    }
+                    batchSpec={args.batchSpec ? mockBatchSpec() : mockBatchSpec({ originalInput: 'not-valid' })}
                     refetchBatchChange={() => Promise.resolve()}
                 >
-                    <WorkspacesPreview {...props} />
+                    <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                 </BatchSpecContextProvider>
             </MockedTestProvider>
         )}
     </WebStory>
-))
+)
+Unstarted.argTypes = {
+    batchSpec: {
+        name: 'Valid batch spec?',
+        control: { type: 'boolean' },
+    },
+}
+Unstarted.args = {
+    batchSpec: true,
+}
 
-add('unstarted, with cached connection result', () => (
+export const UnstartedWithCachedConnectionResult: StoryFn = args => (
     <WebStory>
-        {props => (
+        {() => (
             <MockedTestProvider link={new WildcardMockLink(UNSTARTED_WITH_CACHE_CONNECTION_MOCKS)}>
                 <BatchSpecContextProvider
                     batchChange={mockBatchChange()}
-                    batchSpec={
-                        boolean('Valid batch spec?', true)
-                            ? mockBatchSpec()
-                            : mockBatchSpec({ originalInput: 'not-valid' })
-                    }
+                    batchSpec={args.batchSpec ? mockBatchSpec() : mockBatchSpec({ originalInput: 'not-valid' })}
                     refetchBatchChange={() => Promise.resolve()}
                 >
-                    <WorkspacesPreview {...props} />
+                    <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                 </BatchSpecContextProvider>
             </MockedTestProvider>
         )}
     </WebStory>
-))
+)
+UnstartedWithCachedConnectionResult.argTypes = {
+    batchSpec: {
+        name: 'Valid batch spec?',
+        control: { type: 'boolean' },
+    },
+}
+UnstartedWithCachedConnectionResult.args = {
+    batchSpec: true,
+}
 
-add('queued/in progress', () => {
-    const inProgressResolution = mockWorkspaceResolutionStatus(
-        select(
-            'Status',
-            [BatchSpecWorkspaceResolutionState.QUEUED, BatchSpecWorkspaceResolutionState.PROCESSING],
-            BatchSpecWorkspaceResolutionState.QUEUED
-        )
-    )
+UnstartedWithCachedConnectionResult.storyName = 'unstarted, with cached connection result'
+
+export const QueuedInProgress: StoryFn = args => {
+    const inProgressResolution = mockWorkspaceResolutionStatus(args.inProgressResolution)
 
     const inProgressConnectionMocks = new WildcardMockLink([
+        LICENSED_MOCK,
         {
             request: {
                 query: getDocumentNode(WORKSPACES),
@@ -105,35 +121,44 @@ add('queued/in progress', () => {
 
     return (
         <WebStory>
-            {props => (
+            {() => (
                 <MockedTestProvider link={inProgressConnectionMocks}>
                     <BatchSpecContextProvider
                         batchChange={mockBatchChange()}
-                        batchSpec={
-                            boolean('Valid batch spec?', true)
-                                ? mockBatchSpec()
-                                : mockBatchSpec({ originalInput: 'not-valid' })
-                        }
+                        batchSpec={args.batchSpec ? mockBatchSpec() : mockBatchSpec({ originalInput: 'not-valid' })}
                         refetchBatchChange={() => Promise.resolve()}
                     >
-                        <WorkspacesPreview {...props} />
+                        <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                     </BatchSpecContextProvider>
                 </MockedTestProvider>
             )}
         </WebStory>
     )
-})
+}
+QueuedInProgress.argTypes = {
+    inProgressResolution: {
+        name: 'Status',
+        control: {
+            type: 'select',
+            options: [BatchSpecWorkspaceResolutionState.QUEUED, BatchSpecWorkspaceResolutionState.PROCESSING],
+        },
+    },
+    batchSpec: {
+        control: { type: 'boolean' },
+    },
+}
+QueuedInProgress.args = {
+    inProgressResolution: BatchSpecWorkspaceResolutionState.QUEUED,
+    batchSpec: true,
+}
 
-add('queued/in progress, with cached connection result', () => {
-    const inProgressResolution = mockWorkspaceResolutionStatus(
-        select(
-            'Status',
-            [BatchSpecWorkspaceResolutionState.QUEUED, BatchSpecWorkspaceResolutionState.PROCESSING],
-            BatchSpecWorkspaceResolutionState.QUEUED
-        )
-    )
+QueuedInProgress.storyName = 'queued/in progress'
+
+export const QueuedInProgressWithCachedConnectionResult: StoryFn = args => {
+    const inProgressResolution = mockWorkspaceResolutionStatus(args.inProgressResolution)
 
     const inProgressConnectionMocks = new WildcardMockLink([
+        LICENSED_MOCK,
         {
             request: {
                 query: getDocumentNode(WORKSPACES),
@@ -162,32 +187,43 @@ add('queued/in progress, with cached connection result', () => {
 
     return (
         <WebStory>
-            {props => (
+            {() => (
                 <MockedTestProvider link={inProgressConnectionMocks}>
                     <BatchSpecContextProvider
                         batchChange={mockBatchChange()}
                         batchSpec={mockBatchSpec()}
                         refetchBatchChange={() => Promise.resolve()}
                     >
-                        <WorkspacesPreview {...props} />
+                        <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                     </BatchSpecContextProvider>
                 </MockedTestProvider>
             )}
         </WebStory>
     )
-})
+}
+QueuedInProgressWithCachedConnectionResult.argTypes = {
+    inProgressResolution: {
+        name: 'Status',
+        control: {
+            type: 'select',
+            options: [BatchSpecWorkspaceResolutionState.QUEUED, BatchSpecWorkspaceResolutionState.PROCESSING],
+        },
+    },
+}
+QueuedInProgressWithCachedConnectionResult.args = {
+    inProgressResolution: BatchSpecWorkspaceResolutionState.QUEUED,
+}
 
-add('failed/errored', () => {
+QueuedInProgressWithCachedConnectionResult.storyName = 'queued/in progress, with cached connection result'
+
+export const FailedErrored: StoryFn = args => {
     const failedResolution = mockWorkspaceResolutionStatus(
-        select(
-            'Status',
-            [BatchSpecWorkspaceResolutionState.FAILED, BatchSpecWorkspaceResolutionState.ERRORED],
-            BatchSpecWorkspaceResolutionState.FAILED
-        ),
+        args.inProgressResolution,
         "Oh no something went wrong. This is a longer error message to demonstrate how this might take up a decent portion of screen real estate but hopefully it's still helpful information so it's worth the cost. Here's a long error message with some bullets:\n  * This is a bullet\n  * This is another bullet\n  * This is a third bullet and it's also the most important one so it's longer than all the others wow look at that."
     )
 
     const failedConnectionMocks = new WildcardMockLink([
+        LICENSED_MOCK,
         {
             request: {
                 query: getDocumentNode(WORKSPACES),
@@ -216,32 +252,43 @@ add('failed/errored', () => {
 
     return (
         <WebStory>
-            {props => (
+            {() => (
                 <MockedTestProvider link={failedConnectionMocks}>
                     <BatchSpecContextProvider
                         batchChange={mockBatchChange()}
                         batchSpec={mockBatchSpec()}
                         refetchBatchChange={() => Promise.resolve()}
                     >
-                        <WorkspacesPreview {...props} />
+                        <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                     </BatchSpecContextProvider>
                 </MockedTestProvider>
             )}
         </WebStory>
     )
-})
+}
+FailedErrored.argTypes = {
+    inProgressResolution: {
+        name: 'Status',
+        control: {
+            type: 'select',
+            options: [BatchSpecWorkspaceResolutionState.FAILED, BatchSpecWorkspaceResolutionState.ERRORED],
+        },
+    },
+}
+FailedErrored.args = {
+    inProgressResolution: BatchSpecWorkspaceResolutionState.FAILED,
+}
 
-add('failed/errored, with cached connection result', () => {
+FailedErrored.storyName = 'failed/errored'
+
+export const FailedErroredWithCachedConnectionResult: StoryFn = args => {
     const failedResolution = mockWorkspaceResolutionStatus(
-        select(
-            'Status',
-            [BatchSpecWorkspaceResolutionState.FAILED, BatchSpecWorkspaceResolutionState.ERRORED],
-            BatchSpecWorkspaceResolutionState.FAILED
-        ),
+        args.inProgressResolution,
         "Oh no something went wrong. This is a longer error message to demonstrate how this might take up a decent portion of screen real estate but hopefully it's still helpful information so it's worth the cost. Here's a long error message with some bullets:\n  * This is a bullet\n  * This is another bullet\n  * This is a third bullet and it's also the most important one so it's longer than all the others wow look at that."
     )
 
     const failedConnectionMocks = new WildcardMockLink([
+        LICENSED_MOCK,
         {
             request: {
                 query: getDocumentNode(WORKSPACES),
@@ -270,24 +317,38 @@ add('failed/errored, with cached connection result', () => {
 
     return (
         <WebStory>
-            {props => (
+            {() => (
                 <MockedTestProvider link={failedConnectionMocks}>
                     <BatchSpecContextProvider
                         batchChange={mockBatchChange()}
                         batchSpec={mockBatchSpec()}
                         refetchBatchChange={() => Promise.resolve()}
                     >
-                        <WorkspacesPreview {...props} />
+                        <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                     </BatchSpecContextProvider>
                 </MockedTestProvider>
             )}
         </WebStory>
     )
-})
+}
+FailedErroredWithCachedConnectionResult.argTypes = {
+    inProgressResolution: {
+        name: 'Status',
+        control: {
+            type: 'select',
+            options: [BatchSpecWorkspaceResolutionState.FAILED, BatchSpecWorkspaceResolutionState.ERRORED],
+        },
+    },
+}
+FailedErroredWithCachedConnectionResult.args = {
+    inProgressResolution: BatchSpecWorkspaceResolutionState.FAILED,
+}
 
-add('succeeded', () => (
+FailedErroredWithCachedConnectionResult.storyName = 'failed/errored, with cached connection result'
+
+export const Succeeded: StoryFn = () => (
     <WebStory>
-        {props => (
+        {() => (
             <MockedTestProvider link={new WildcardMockLink(UNSTARTED_WITH_CACHE_CONNECTION_MOCKS)}>
                 <BatchSpecContextProvider
                     batchChange={mockBatchChange()}
@@ -303,28 +364,149 @@ add('succeeded', () => (
                             clearError: noop,
                             setFilters: noop,
                             isPreviewDisabled: false,
+                            noCache: false,
                         },
                     }}
                 >
-                    <WorkspacesPreview {...props} />
+                    <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
                 </BatchSpecContextProvider>
             </MockedTestProvider>
         )}
     </WebStory>
-))
+)
 
-add('read-only', () => (
+export const CacheDisabled: StoryFn = () => (
     <WebStory>
-        {props => (
+        {() => (
+            <MockedTestProvider link={new WildcardMockLink(UNSTARTED_WITH_CACHE_CONNECTION_MOCKS)}>
+                <BatchSpecContextProvider
+                    batchChange={mockBatchChange()}
+                    batchSpec={mockBatchSpec()}
+                    refetchBatchChange={() => Promise.resolve()}
+                    testState={{
+                        workspacesPreview: {
+                            hasPreviewed: true,
+                            resolutionState: BatchSpecWorkspaceResolutionState.COMPLETED,
+                            preview: () => Promise.resolve(),
+                            cancel: noop,
+                            isInProgress: false,
+                            clearError: noop,
+                            setFilters: noop,
+                            isPreviewDisabled: false,
+                            noCache: true,
+                        },
+                    }}
+                >
+                    <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
+                </BatchSpecContextProvider>
+            </MockedTestProvider>
+        )}
+    </WebStory>
+)
+
+export const ReadOnly: StoryFn = () => (
+    <WebStory>
+        {() => (
             <MockedTestProvider link={new WildcardMockLink(UNSTARTED_WITH_CACHE_CONNECTION_MOCKS)}>
                 <BatchSpecContextProvider
                     batchChange={mockBatchChange()}
                     batchSpec={mockBatchSpec()}
                     refetchBatchChange={() => Promise.resolve()}
                 >
-                    <WorkspacesPreview {...props} isReadOnly={true} />
+                    <WorkspacesPreview isReadOnly={true} telemetryRecorder={noOpTelemetryRecorder} />
                 </BatchSpecContextProvider>
             </MockedTestProvider>
         )}
     </WebStory>
-))
+)
+
+ReadOnly.storyName = 'read-only'
+
+export const SucceededWithScaleAlert: StoryFn = () => (
+    <WebStory>
+        {() => (
+            <MockedTestProvider link={new WildcardMockLink(LARGE_SUCCESS_CONNECTION_MOCKS)}>
+                <BatchSpecContextProvider
+                    batchChange={mockBatchChange()}
+                    batchSpec={mockBatchSpec()}
+                    refetchBatchChange={() => Promise.resolve()}
+                    testState={{
+                        workspacesPreview: {
+                            hasPreviewed: true,
+                            resolutionState: BatchSpecWorkspaceResolutionState.COMPLETED,
+                            preview: () => Promise.resolve(),
+                            cancel: noop,
+                            isInProgress: false,
+                            clearError: noop,
+                            setFilters: noop,
+                            isPreviewDisabled: false,
+                            noCache: false,
+                        },
+                    }}
+                >
+                    <WorkspacesPreview telemetryRecorder={noOpTelemetryRecorder} />
+                </BatchSpecContextProvider>
+            </MockedTestProvider>
+        )}
+    </WebStory>
+)
+
+SucceededWithScaleAlert.storyName = 'succeeded, with size alert'
+
+export const ReadOnlyWithScaleAlert: StoryFn = () => (
+    <WebStory>
+        {props => (
+            <MockedTestProvider link={new WildcardMockLink(LARGE_SUCCESS_CONNECTION_MOCKS)}>
+                <BatchSpecContextProvider
+                    batchChange={mockBatchChange()}
+                    batchSpec={mockBatchSpec()}
+                    refetchBatchChange={() => Promise.resolve()}
+                >
+                    <WorkspacesPreview {...props} isReadOnly={true} telemetryRecorder={noOpTelemetryRecorder} />
+                </BatchSpecContextProvider>
+            </MockedTestProvider>
+        )}
+    </WebStory>
+)
+
+ReadOnlyWithScaleAlert.storyName = 'read-only, with size alert'
+
+export const UnstartedWithLicenseAlertConnectionResult: StoryFn = () => (
+    <WebStory>
+        {props => (
+            <MockedTestProvider
+                link={new WildcardMockLink([UNLICENSED_MOCK, ...UNSTARTED_WITH_CACHE_CONNECTION_MOCKS])}
+            >
+                <BatchSpecContextProvider
+                    batchChange={mockBatchChange()}
+                    batchSpec={mockBatchSpec()}
+                    refetchBatchChange={() => Promise.resolve()}
+                >
+                    <WorkspacesPreview {...props} isReadOnly={false} telemetryRecorder={noOpTelemetryRecorder} />
+                </BatchSpecContextProvider>
+            </MockedTestProvider>
+        )}
+    </WebStory>
+)
+
+UnstartedWithLicenseAlertConnectionResult.storyName = 'unstarted, with license alert'
+
+export const ReadOnlyWithLicenseAlert: StoryFn = () => (
+    <WebStory>
+        {props => (
+            <MockedTestProvider
+                link={new WildcardMockLink([UNLICENSED_MOCK, ...UNSTARTED_WITH_CACHE_CONNECTION_MOCKS])}
+            >
+                <BatchSpecContextProvider
+                    batchChange={mockBatchChange()}
+                    batchSpec={mockBatchSpec()}
+                    refetchBatchChange={() => Promise.resolve()}
+                >
+                    <WorkspacesPreview {...props} isReadOnly={true} telemetryRecorder={noOpTelemetryRecorder} />
+                </BatchSpecContextProvider>
+            </MockedTestProvider>
+        )}
+    </WebStory>
+)
+
+ReadOnlyWithLicenseAlert.storyName = 'read-only, with license alert'

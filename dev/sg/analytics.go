@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/urfave/cli/v2"
 
@@ -17,10 +16,11 @@ import (
 // ourselves because the library's state (and hence .FullName()) seems to get a bit funky.
 //
 // It also handles watching for panics and formatting them in a useful manner.
-func addAnalyticsHooks(start time.Time, commandPath []string, commands []*cli.Command) {
+func addAnalyticsHooks(commandPath []string, commands []*cli.Command) {
 	for _, command := range commands {
+		fullCommandPath := append(commandPath, command.Name)
 		if len(command.Subcommands) > 0 {
-			addAnalyticsHooks(start, append(commandPath, command.Name), command.Subcommands)
+			addAnalyticsHooks(fullCommandPath, command.Subcommands)
 		}
 
 		// No action to perform analytics on
@@ -29,33 +29,59 @@ func addAnalyticsHooks(start time.Time, commandPath []string, commands []*cli.Co
 		}
 
 		// Set up analytics hook for command
-		analyticsHook := makeAnalyticsHook(start, append(commandPath, command.Name))
+		fullCommand := strings.Join(fullCommandPath, " ")
 
 		// Wrap action with analytics
 		wrappedAction := command.Action
 		command.Action = func(cmd *cli.Context) (actionErr error) {
-			// Make sure analytics hook gets called before exit (interrupts or panics)
-			interrupt.Register(func() { analyticsHook(cmd, "cancelled") })
+			cmdFlags := make(map[string][]string)
+			for _, parent := range cmd.Lineage() {
+				if parent.Command == nil {
+					continue
+				}
+				cmdFlags[parent.Command.Name] = parent.LocalFlagNames()
+			}
+
+			cmdCtx, err := analytics.NewInvocation(cmd.Context, cmd.App.Version, map[string]any{
+				"command": fullCommand,
+				"flags":   cmdFlags,
+				"args":    cmd.Args().Slice(),
+				"nargs":   cmd.NArg(),
+			})
+			if err != nil {
+				std.Out.WriteWarningf("Failed to create analytics event: %s", err)
+				return
+			}
+			cmd.Context = cmdCtx
+
+			// Make sure analytics are persisted before exit (interrupts or panics)
 			defer func() {
 				if p := recover(); p != nil {
-					analyticsHook(cmd, "panic")
-
 					// Render a more elegant message
-					std.Out.WriteWarningf("Encountered panic - please open an issue with the command output:\n\t%s",
-						sgBugReportTemplate)
+					std.Out.WriteWarningf("Encountered panic - please open an issue with the command output:\n\t%s", sgBugReportTemplate)
 					message := fmt.Sprintf("%v:\n%s", p, getRelevantStack("addAnalyticsHooks"))
-					actionErr = cli.NewExitError(message, 1)
+					actionErr = cli.Exit(message, 1)
+
+					// Log event
+					err := analytics.InvocationPanicked(cmd.Context, p)
+					maybeLog("failed to persist analytics panic event: %s", err)
 				}
 			}()
+			interrupt.Register(func() {
+				err := analytics.InvocationCancelled(cmd.Context)
+				maybeLog("failed to persist analytics cancel event: %s", err)
+			})
 
 			// Call the underlying action
 			actionErr = wrappedAction(cmd)
 
 			// Capture analytics post-run
 			if actionErr != nil {
-				analyticsHook(cmd, "error")
+				err := analytics.InvocationFailed(cmd.Context, actionErr)
+				maybeLog("failed to persist analytics cancel event: %s", err)
 			} else {
-				analyticsHook(cmd, "success")
+				err := analytics.InvocationSucceeded(cmd.Context)
+				maybeLog("failed to persist analytics success event: %s", err)
 			}
 
 			return actionErr
@@ -63,17 +89,11 @@ func addAnalyticsHooks(start time.Time, commandPath []string, commands []*cli.Co
 	}
 }
 
-func makeAnalyticsHook(start time.Time, commandPath []string) func(ctx *cli.Context, events ...string) {
-	return func(cmd *cli.Context, events ...string) {
-		// Log an sg usage occurrence
-		analytics.LogEvent(cmd.Context, "sg_action", commandPath, start, events...)
-
-		// Persist all tracked to disk
-		flagsUsed := cmd.FlagNames()
-		if err := analytics.Persist(cmd.Context, strings.Join(commandPath, " "), flagsUsed); err != nil {
-			std.Out.WriteSkippedf("failed to persist events: %s", err)
-		}
+func maybeLog(fmt string, err error) { //nolint:unparam
+	if err == nil {
+		return
 	}
+	std.Out.WriteWarningf(fmt, err)
 }
 
 // getRelevantStack generates a stacktrace that encapsulates the relevant parts of a

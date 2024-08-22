@@ -1,13 +1,16 @@
-import React, { forwardRef, PropsWithChildren, useLayoutEffect, useState } from 'react'
+import React, { forwardRef, type PropsWithChildren, useLayoutEffect, useState } from 'react'
 
 import classNames from 'classnames'
 import { createPortal } from 'react-dom'
 import { useCallbackRef, useMergeRefs } from 'use-callback-ref'
 
-import { ForwardReferenceComponent } from '../../../../types'
-import { createTether, Flipping, Overlapping, Position, Strategy, Tether } from '../../tether'
+import type { ForwardReferenceComponent } from '../../../../types'
+import { createTether, Flipping, Overlapping, type Padding, Position, Strategy, type Tether } from '../../tether'
+import type { TetherInstanceAPI } from '../../tether/services/tether-registry'
 
 import styles from './FloatingPanel.module.scss'
+
+const DEFAULT_PADDING: Padding = { top: 8, right: 8, bottom: 8, left: 8 }
 
 export interface FloatingPanelProps extends Omit<Tether, 'target' | 'element'>, React.HTMLAttributes<HTMLDivElement> {
     /**
@@ -15,6 +18,15 @@ export interface FloatingPanelProps extends Omit<Tether, 'target' | 'element'>, 
      * Renders nothing if target isn't specified.
      */
     target: HTMLElement | null
+
+    /**
+     * The root element where Popover renders popover content element.
+     * This element is used when we render popover with fixed strategy -
+     * outside the dom tree.
+     */
+    rootRender?: HTMLElement | null
+
+    onTetherCreate?: (tether: TetherInstanceAPI) => void
 }
 
 /**
@@ -33,10 +45,12 @@ export const FloatingPanel = forwardRef((props, reference) => {
         constrainToScrollParents = true,
         overflowToScrollParents = true,
         strategy = Strategy.Fixed,
-        windowPadding,
+        windowPadding = DEFAULT_PADDING,
         constraintPadding,
         targetPadding,
         constraint,
+        rootRender,
+        onTetherCreate,
         ...otherProps
     } = props
 
@@ -49,7 +63,7 @@ export const FloatingPanel = forwardRef((props, reference) => {
             return
         }
 
-        const { unsubscribe } = createTether({
+        const tether = createTether({
             element: tooltipElement,
             marker,
             target,
@@ -66,7 +80,9 @@ export const FloatingPanel = forwardRef((props, reference) => {
             flipping,
         })
 
-        return unsubscribe
+        onTetherCreate?.(tether)
+
+        return tether.unsubscribe
     }, [
         target,
         tooltipElement,
@@ -82,6 +98,7 @@ export const FloatingPanel = forwardRef((props, reference) => {
         constrainToScrollParents,
         overflowToScrollParents,
         flipping,
+        onTetherCreate,
     ])
 
     if (strategy === Strategy.Absolute) {
@@ -100,6 +117,6 @@ export const FloatingPanel = forwardRef((props, reference) => {
         <Component {...otherProps} ref={references} className={classNames(styles.floatingPanel, otherProps.className)}>
             {props.children}
         </Component>,
-        document.body
+        rootRender ?? document.body
     )
 }) as ForwardReferenceComponent<'div', PropsWithChildren<FloatingPanelProps>>

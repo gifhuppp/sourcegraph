@@ -19,7 +19,8 @@ func TestBatchInserter(t *testing.T) {
 	db := dbtest.NewDB(t)
 	setupTestTable(t, db)
 
-	expectedValues := makeTestValues(2, 0)
+	tableSizeFactor := 2
+	expectedValues := makeTestValues(tableSizeFactor, 0)
 	testInsert(t, db, expectedValues)
 
 	rows, err := db.Query("SELECT col1, col2, col3, col4, col5 from batch_inserter_test")
@@ -44,6 +45,38 @@ func TestBatchInserter(t *testing.T) {
 	}
 }
 
+func TestBatchInserterThin(t *testing.T) {
+	db := dbtest.NewDB(t)
+	setupTestTableThin(t, db)
+
+	tableSizeFactor := 2
+	var expectedValues [][]any
+	for i := range MaxNumPostgresParameters * tableSizeFactor {
+		expectedValues = append(expectedValues, []any{i})
+	}
+	testInsertThin(t, db, expectedValues)
+
+	rows, err := db.Query("SELECT col1 from batch_inserter_test_thin")
+	if err != nil {
+		t.Fatalf("unexpected error querying data: %s", err)
+	}
+	defer rows.Close()
+
+	var values [][]any
+	for rows.Next() {
+		var v1 int
+		if err := rows.Scan(&v1); err != nil {
+			t.Fatalf("unexpected error scanning data: %s", err)
+		}
+
+		values = append(values, []any{v1})
+	}
+
+	if diff := cmp.Diff(expectedValues, values); diff != "" {
+		t.Errorf("unexpected table contents (-want +got):\n%s", diff)
+	}
+}
+
 func TestBatchInserterWithReturn(t *testing.T) {
 	db := dbtest.NewDB(t)
 	setupTestTable(t, db)
@@ -53,7 +86,7 @@ func TestBatchInserterWithReturn(t *testing.T) {
 	expectedValues := makeTestValues(tableSizeFactor, 0)
 
 	var expectedIDs []int
-	for i := 0; i < numRows; i++ {
+	for i := range numRows {
 		expectedIDs = append(expectedIDs, i+1)
 	}
 
@@ -72,12 +105,43 @@ func TestBatchInserterWithReturnWithConflicts(t *testing.T) {
 	expectedValues := makeTestValues(tableSizeFactor, 0)
 
 	var expectedIDs []int
-	for i := 0; i < numRows; i++ {
+	for i := range numRows {
 		expectedIDs = append(expectedIDs, i+1)
 	}
 
 	if diff := cmp.Diff(expectedIDs, testInsertWithReturnWithConflicts(t, db, duplicationFactor, expectedValues)); diff != "" {
 		t.Errorf("unexpected returned ids (-want +got):\n%s", diff)
+	}
+}
+
+func TestBatchInserterWithConflict(t *testing.T) {
+	db := dbtest.NewDB(t)
+	setupTestTable(t, db)
+
+	tableSizeFactor := 2
+	duplicationFactor := 2
+	expectedValues := makeTestValues(tableSizeFactor, 0)
+	testInsertWithConflicts(t, db, duplicationFactor, expectedValues)
+
+	rows, err := db.Query("SELECT col1, col2, col3, col4, col5 from batch_inserter_test")
+	if err != nil {
+		t.Fatalf("unexpected error querying data: %s", err)
+	}
+	defer rows.Close()
+
+	var values [][]any
+	for rows.Next() {
+		var v1, v2, v3, v4 int
+		var v5 string
+		if err := rows.Scan(&v1, &v2, &v3, &v4, &v5); err != nil {
+			t.Fatalf("unexpected error scanning data: %s", err)
+		}
+
+		values = append(values, []any{v1, v2, v3, v4, v5})
+	}
+
+	if diff := cmp.Diff(expectedValues, values); diff != "" {
+		t.Errorf("unexpected table contents (-want +got):\n%s", diff)
 	}
 }
 
@@ -89,7 +153,7 @@ func BenchmarkBatchInserter(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		testInsert(b, db, expectedValues)
 	}
 }
@@ -102,7 +166,7 @@ func BenchmarkBatchInserterLargePayload(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		testInsert(b, db, expectedValues)
 	}
 }
@@ -123,9 +187,21 @@ func setupTestTable(t testing.TB, db *sql.DB) {
 	}
 }
 
+func setupTestTableThin(t testing.TB, db *sql.DB) {
+	createTableQuery := `
+		CREATE TABLE batch_inserter_test_thin (
+			id SERIAL,
+			col1 integer NOT NULL UNIQUE
+		)
+	`
+	if _, err := db.Exec(createTableQuery); err != nil {
+		t.Fatalf("unexpected error creating test table: %s", err)
+	}
+}
+
 func makeTestValues(tableSizeFactor, payloadSize int) [][]any {
 	var expectedValues [][]any
-	for i := 0; i < MaxNumPostgresParameters*tableSizeFactor; i++ {
+	for i := range MaxNumPostgresParameters * tableSizeFactor {
 		expectedValues = append(expectedValues, []any{
 			i,
 			i + 1,
@@ -140,7 +216,7 @@ func makeTestValues(tableSizeFactor, payloadSize int) [][]any {
 
 func makePayload(size int) string {
 	s := make([]byte, 0, size)
-	for i := 0; i < size; i++ {
+	for range size {
 		s = append(s, '!')
 	}
 
@@ -151,6 +227,21 @@ func testInsert(t testing.TB, db *sql.DB, expectedValues [][]any) {
 	ctx := context.Background()
 
 	inserter := NewInserter(ctx, db, "batch_inserter_test", MaxNumPostgresParameters, "col1", "col2", "col3", "col4", "col5")
+	for _, values := range expectedValues {
+		if err := inserter.Insert(ctx, values...); err != nil {
+			t.Fatalf("unexpected error inserting values: %s", err)
+		}
+	}
+
+	if err := inserter.Flush(ctx); err != nil {
+		t.Fatalf("unexpected error flushing: %s", err)
+	}
+}
+
+func testInsertThin(t testing.TB, db *sql.DB, expectedValues [][]any) {
+	ctx := context.Background()
+
+	inserter := NewInserter(ctx, db, "batch_inserter_test_thin", MaxNumPostgresParameters, "col1")
 	for _, values := range expectedValues {
 		if err := inserter.Insert(ctx, values...); err != nil {
 			t.Fatalf("unexpected error inserting values: %s", err)
@@ -219,7 +310,7 @@ func testInsertWithReturnWithConflicts(t testing.TB, db *sql.DB, n int, expected
 		},
 	)
 
-	for i := 0; i < n; i++ {
+	for range n {
 		for j, values := range expectedValues {
 			if err := inserter.Insert(ctx, append([]any{j + 1}, values...)...); err != nil {
 				t.Fatalf("unexpected error inserting values: %s", err)
@@ -232,4 +323,29 @@ func testInsertWithReturnWithConflicts(t testing.TB, db *sql.DB, n int, expected
 	}
 
 	return insertedIDs
+}
+
+func testInsertWithConflicts(t testing.TB, db *sql.DB, n int, expectedValues [][]any) {
+	ctx := context.Background()
+
+	inserter := NewInserterWithConflict(
+		ctx,
+		db,
+		"batch_inserter_test",
+		MaxNumPostgresParameters,
+		"ON CONFLICT DO NOTHING",
+		"id", "col1", "col2", "col3", "col4", "col5",
+	)
+
+	for range n {
+		for j, values := range expectedValues {
+			if err := inserter.Insert(ctx, append([]any{j + 1}, values...)...); err != nil {
+				t.Fatalf("unexpected error inserting values: %s", err)
+			}
+		}
+	}
+
+	if err := inserter.Flush(ctx); err != nil {
+		t.Fatalf("unexpected error flushing: %s", err)
+	}
 }

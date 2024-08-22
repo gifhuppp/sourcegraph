@@ -6,13 +6,14 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/sourcegraph/sourcegraph/lib/output"
+	"github.com/sourcegraph/sourcegraph/lib/pointers"
 )
 
 func TestBuffer_Lines(t *testing.T) {
 	buf := &Buffer{}
 
 	out := output.NewOutput(buf, output.OutputOpts{
-		ForceTTY:    true,
+		ForceTTY:    pointers.Ptr(true),
 		ForceColor:  true,
 		ForceHeight: 25,
 		ForceWidth:  80,
@@ -33,9 +34,9 @@ func TestBuffer_Lines(t *testing.T) {
 
 	expectOutput(t, buf, []string{
 		"✅ Hello there!",
-		"⠋  Bar-A  ",
-		"⠋  Bar-B  ███████████████████████████████████",
-		"⠋  Bar-C  █████████████████████████████████████████████████",
+		"⠋  Bar-A                                                                      0%",
+		"⠋  Bar-B  ████████████████████████████████▌                                  50%",
+		"⠋  Bar-C  █████████████████████████████████████████████▌                     70%",
 	})
 
 	progress.SetValue(0, 0.5)
@@ -44,18 +45,18 @@ func TestBuffer_Lines(t *testing.T) {
 
 	expectOutput(t, buf, []string{
 		"✅ Hello there!",
-		"⠋  Bar-A  ███████████████████████████████████",
-		"⠋  Bar-B  ████████████████████████████████████████████████████████",
-		"✅ Bar-C  ██████████████████████████████████████████████████████████████████████",
+		"⠋  Bar-A  ████████████████████████████████▌                                  50%",
+		"⠋  Bar-B  ████████████████████████████████████████████████████               80%",
+		"✅ Bar-C  ████████████████████████████████████████████████████████████████  100%",
 	})
 
 	progress.Complete()
 
 	expectOutput(t, buf, []string{
 		"✅ Hello there!",
-		"✅ Bar-A  ██████████████████████████████████████████████████████████████████████",
-		"✅ Bar-B  ██████████████████████████████████████████████████████████████████████",
-		"✅ Bar-C  ██████████████████████████████████████████████████████████████████████",
+		"✅ Bar-A  ████████████████████████████████████████████████████████████████  100%",
+		"✅ Bar-B  ████████████████████████████████████████████████████████████████  100%",
+		"✅ Bar-C  ████████████████████████████████████████████████████████████████  100%",
 	})
 }
 

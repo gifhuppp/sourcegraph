@@ -1,21 +1,24 @@
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 import { addDays } from 'date-fns'
 import { of } from 'rxjs'
 
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
+
 import { WebStory } from '../../components/WebStory'
 
-import { queryBatchSpecs as _queryBatchSpecs } from './backend'
+import type { queryBatchSpecs as _queryBatchSpecs } from './backend'
 import { BatchSpecsPage } from './BatchSpecsPage'
 import { NODES, successNode } from './testData'
 
-const { add } = storiesOf('web/batches/settings/specs/BatchSpecsPage', module)
-    .addDecorator(story => <div className="p-3 container">{story()}</div>)
-    .addParameters({
-        chromatic: {
-            viewports: [320, 576, 978, 1440],
-            disableSnapshot: false,
-        },
-    })
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+const config: Meta = {
+    title: 'web/batches/settings/specs/BatchSpecsPage',
+    decorators: [decorator],
+    parameters: {},
+}
+
+export default config
 
 const NOW = () => addDays(new Date(), 1)
 
@@ -41,10 +44,32 @@ const queryNoBatchSpecs: typeof _queryBatchSpecs = () =>
         nodes: [],
     })
 
-add('List of specs', () => (
-    <WebStory>{props => <BatchSpecsPage {...props} queryBatchSpecs={queryBatchSpecs} now={NOW} />}</WebStory>
-))
+export const ListOfSpecs: StoryFn = () => (
+    <WebStory>
+        {props => (
+            <BatchSpecsPage
+                {...props}
+                queryBatchSpecs={queryBatchSpecs}
+                now={NOW}
+                telemetryRecorder={noOpTelemetryRecorder}
+            />
+        )}
+    </WebStory>
+)
 
-add('No specs', () => (
-    <WebStory>{props => <BatchSpecsPage {...props} queryBatchSpecs={queryNoBatchSpecs} now={NOW} />}</WebStory>
-))
+ListOfSpecs.storyName = 'List of specs'
+
+export const NoSpecs: StoryFn = () => (
+    <WebStory>
+        {props => (
+            <BatchSpecsPage
+                {...props}
+                queryBatchSpecs={queryNoBatchSpecs}
+                now={NOW}
+                telemetryRecorder={noOpTelemetryRecorder}
+            />
+        )}
+    </WebStory>
+)
+
+NoSpecs.storyName = 'No specs'

@@ -1,70 +1,71 @@
 package shared
 
 import (
-	"github.com/sourcegraph/sourcegraph/internal/api"
+	"time"
+
 	"github.com/sourcegraph/sourcegraph/internal/conf/reposource"
 )
 
-type Repo struct {
-	ID      int
+type PackageRepoReference struct {
+	ID            int
+	Scheme        string
+	Name          reposource.PackageName
+	Versions      []PackageRepoRefVersion
+	Blocked       bool
+	LastCheckedAt *time.Time
+}
+
+type PackageRepoRefVersion struct {
+	ID            int
+	PackageRefID  int
+	Version       string
+	Blocked       bool
+	LastCheckedAt *time.Time
+}
+
+type MinimalPackageRepoRef struct {
+	Scheme        string
+	Name          reposource.PackageName
+	Versions      []MinimalPackageRepoRefVersion
+	Blocked       bool
+	LastCheckedAt *time.Time
+}
+
+type MinimalPackageRepoRefVersion struct {
+	Version       string
+	Blocked       bool
+	LastCheckedAt *time.Time
+}
+
+type MinimialVersionedPackageRepo struct {
 	Scheme  string
-	Name    string
+	Name    reposource.PackageName
 	Version string
 }
 
-type PackageDependency interface {
-	RepoName() api.RepoName
-	GitTagFromVersion() string
-	Scheme() string
-	PackageSyntax() string
-	PackageVersion() string
-}
-
-type PackageDependencyLiteral struct {
-	RepoNameValue          api.RepoName
-	GitTagFromVersionValue string
-	SchemeValue            string
-	PackageSyntaxValue     string
-	PackageVersionValue    string
-}
-
-func TestPackageDependencyLiteral(
-	repoNameValue api.RepoName,
-	gitTagFromVersionValue string,
-	schemeValue string,
-	packageSyntaxValue string,
-	packageVersionValue string,
-) PackageDependency {
-	return PackageDependencyLiteral{
-		RepoNameValue:          repoNameValue,
-		GitTagFromVersionValue: gitTagFromVersionValue,
-		SchemeValue:            schemeValue,
-		PackageSyntaxValue:     packageSyntaxValue,
-		PackageVersionValue:    packageVersionValue,
+type MinimalPackageFilter struct {
+	PackageScheme string
+	Behaviour     *string
+	NameFilter    *struct {
+		PackageGlob string
+	}
+	VersionFilter *struct {
+		PackageName string
+		VersionGlob string
 	}
 }
 
-func (d PackageDependencyLiteral) RepoName() api.RepoName    { return d.RepoNameValue }
-func (d PackageDependencyLiteral) GitTagFromVersion() string { return d.GitTagFromVersionValue }
-func (d PackageDependencyLiteral) Scheme() string            { return d.SchemeValue }
-func (d PackageDependencyLiteral) PackageSyntax() string     { return d.PackageSyntaxValue }
-func (d PackageDependencyLiteral) PackageVersion() string    { return d.PackageVersionValue }
-
-func SerializePackageDependencies(deps []reposource.PackageDependency) []PackageDependency {
-	serializableRepoDeps := make([]PackageDependency, 0, len(deps))
-	for _, dep := range deps {
-		serializableRepoDeps = append(serializableRepoDeps, SerializePackageDependency(dep))
+type PackageRepoFilter struct {
+	ID            int
+	Behaviour     string
+	PackageScheme string
+	NameFilter    *struct {
+		PackageGlob string
 	}
-
-	return serializableRepoDeps
-}
-
-func SerializePackageDependency(dep reposource.PackageDependency) PackageDependency {
-	return PackageDependencyLiteral{
-		RepoNameValue:          dep.RepoName(),
-		GitTagFromVersionValue: dep.GitTagFromVersion(),
-		SchemeValue:            dep.Scheme(),
-		PackageSyntaxValue:     dep.PackageSyntax(),
-		PackageVersionValue:    dep.PackageVersion(),
+	VersionFilter *struct {
+		PackageName string
+		VersionGlob string
 	}
+	DeletedAt *time.Time
+	UpdatedAt time.Time
 }

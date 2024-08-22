@@ -1,11 +1,13 @@
 import React from 'react'
 
 import { startCase } from 'lodash'
-import 'storybook-addon-designs'
 
+import '@storybook/addon-designs'
+
+import { logger } from '../../../utils'
 import { Icon } from '../../Icon'
-import { Button, ButtonProps } from '../Button'
-import { BUTTON_VARIANTS } from '../constants'
+import { Button, type ButtonProps } from '../Button'
+import type { BUTTON_VARIANTS } from '../constants'
 
 import styles from './ButtonVariants.module.scss'
 
@@ -23,16 +25,16 @@ export const ButtonVariants: React.FunctionComponent<React.PropsWithChildren<But
     <div className={styles.grid}>
         {variants.map(variant => (
             <React.Fragment key={variant}>
-                <Button variant={variant} size={size} outline={outline} onClick={console.log}>
-                    {ButtonIcon && <Icon role="img" aria-hidden={true} as={ButtonIcon} className="mr-1" />}
+                <Button variant={variant} size={size} outline={outline} onClick={logger.log}>
+                    {ButtonIcon && <Icon aria-hidden={true} as={ButtonIcon} className="mr-1" />}
                     {startCase(variant)}
                 </Button>
-                <Button variant={variant} size={size} outline={outline} onClick={console.log} className="focus">
-                    {ButtonIcon && <Icon role="img" aria-hidden={true} as={ButtonIcon} className="mr-1" />}
+                <Button variant={variant} size={size} outline={outline} onClick={logger.log} className="focus">
+                    {ButtonIcon && <Icon aria-hidden={true} as={ButtonIcon} className="mr-1" />}
                     Focus
                 </Button>
-                <Button variant={variant} size={size} outline={outline} onClick={console.log} disabled={true}>
-                    {ButtonIcon && <Icon role="img" aria-hidden={true} as={ButtonIcon} className="mr-1" />}
+                <Button variant={variant} size={size} outline={outline} onClick={logger.log} disabled={true}>
+                    {ButtonIcon && <Icon aria-hidden={true} as={ButtonIcon} className="mr-1" />}
                     Disabled
                 </Button>
             </React.Fragment>

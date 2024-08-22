@@ -1,7 +1,6 @@
-import React from 'react'
+import React, { type ReactNode } from 'react'
 
-import { Edit, FormattingOptions, JSONPath } from '@sqs/jsonc-parser'
-import { setProperty } from '@sqs/jsonc-parser/lib/edit'
+import { type Edit, type JSONPath, type ModificationOptions, modify, parse as parseJSONC } from 'jsonc-parser'
 import AwsIcon from 'mdi-react/AwsIcon'
 import BitbucketIcon from 'mdi-react/BitbucketIcon'
 import GithubIcon from 'mdi-react/GithubIcon'
@@ -10,13 +9,16 @@ import GitLabIcon from 'mdi-react/GitlabIcon'
 import LanguageGoIcon from 'mdi-react/LanguageGoIcon'
 import LanguageJavaIcon from 'mdi-react/LanguageJavaIcon'
 import LanguagePythonIcon from 'mdi-react/LanguagePythonIcon'
+import LanguageRubyIcon from 'mdi-react/LanguageRubyIcon'
 import LanguageRustIcon from 'mdi-react/LanguageRustIcon'
+import AzureDevOpsIcon from 'mdi-react/MicrosoftAzureDevopsIcon'
 import NpmIcon from 'mdi-react/NpmIcon'
 
-import { PhabricatorIcon } from '@sourcegraph/shared/src/components/icons'
+import { PerforceIcon, PhabricatorIcon } from '@sourcegraph/shared/src/components/icons'
 import { Link, Code, Text } from '@sourcegraph/wildcard'
 
 import awsCodeCommitSchemaJSON from '../../../../../schema/aws_codecommit.schema.json'
+import azureDevOpsSchemaJSON from '../../../../../schema/azuredevops.schema.json'
 import bitbucketCloudSchemaJSON from '../../../../../schema/bitbucket_cloud.schema.json'
 import bitbucketServerSchemaJSON from '../../../../../schema/bitbucket_server.schema.json'
 import gerritSchemaJSON from '../../../../../schema/gerrit.schema.json'
@@ -31,10 +33,19 @@ import pagureSchemaJSON from '../../../../../schema/pagure.schema.json'
 import perforceSchemaJSON from '../../../../../schema/perforce.schema.json'
 import phabricatorSchemaJSON from '../../../../../schema/phabricator.schema.json'
 import pythonPackagesJSON from '../../../../../schema/python-packages.schema.json'
+import rubyPackagesSchemaJSON from '../../../../../schema/ruby-packages.schema.json'
 import rustPackagesJSON from '../../../../../schema/rust-packages.schema.json'
-import { ExternalServiceKind } from '../../graphql-operations'
-import { EditorAction } from '../../site-admin/configHelpers'
-import { PerforceIcon } from '../PerforceIcon'
+import {
+    type ExternalRepositoryFields,
+    ExternalServiceKind,
+    ExternalServiceSyncJobState,
+    type GitHubAppByAppIDResult,
+} from '../../graphql-operations'
+import type { EditorAction } from '../../settings/EditorActionsGroup'
+import { GitHubAppSelector } from '../gitHubApps/GitHubAppSelector'
+
+import type { ExternalServiceFieldsWithConfig } from './backend'
+import { GerritIcon } from './GerritIcon'
 
 /**
  * Metadata associated with adding a given external service.
@@ -60,7 +71,7 @@ export interface AddExternalServiceOptions {
     /**
      * Instructions that will appear on the add / edit page
      */
-    instructions?: JSX.Element | string
+    Instructions?: React.FunctionComponent
 
     /**
      * The JSON schema of the external service configuration
@@ -81,12 +92,24 @@ export interface AddExternalServiceOptions {
      * Default external service configuration
      */
     defaultConfig: string
+
+    /**
+     * If present, denotes that we should show a status label, e.g. Beta or Experimental
+     */
+    status?: 'experimental' | 'beta'
+
+    /**
+     * If present, denotes that we should show additional fields on the form above the JSON
+     */
+    additionalFormComponent?: ReactNode
 }
 
-const defaultFormattingOptions: FormattingOptions = {
-    eol: '\n',
-    insertSpaces: true,
-    tabSize: 2,
+const defaultModificationOptions: ModificationOptions = {
+    formattingOptions: {
+        eol: '\n',
+        insertSpaces: true,
+        tabSize: 2,
+    },
 }
 
 /**
@@ -95,17 +118,17 @@ const defaultFormattingOptions: FormattingOptions = {
  * `"COMMENT_SENTINEL": true` appears in the JSON.
  */
 function editWithComment(config: string, path: JSONPath, value: any, comment: string): Edit {
-    const edit = setProperty(config, path, value, defaultFormattingOptions)[0]
+    const edit = modify(config, path, value, defaultModificationOptions)[0]
     edit.content = edit.content.replace('"COMMENT_SENTINEL": true', comment)
     return edit
 }
 
 const editorActionComments = {
     enablePermissions:
-        '// Prerequisite: you must configure GitHub as an OAuth auth provider in the site config (https://docs.sourcegraph.com/admin/auth#github). Otherwise, access to all repositories will be disallowed.',
+        '// Prerequisite: you must configure GitHub as an OAuth auth provider in the site config (https://sourcegraph.com/docs/admin/auth#github). Otherwise, access to all repositories will be disallowed.',
     enforcePermissionsOAuth: `// Prerequisite: you must first update the site configuration to
       // include GitLab OAuth as an auth provider.
-      // See https://docs.sourcegraph.com/admin/auth#gitlab for instructions.`,
+      // See https://sourcegraph.com/docs/admin/auth#gitlab for instructions.`,
     enforcePermissionsSSO: `// Prerequisite: You need a sudo-level access token. If you can configure
     // GitLab as an OAuth identity provider for Sourcegraph, we recommend that
     // option instead.
@@ -113,20 +136,20 @@ const editorActionComments = {
     // 1. Ensure the personal access token in this config has admin privileges
     //    (https://docs.gitlab.com/ee/api/#sudo).
     // 2. Update the site configuration to include the SSO auth provider for GitLab
-    //    (https://docs.sourcegraph.com/admin/auth).
+    //    (https://sourcegraph.com/docs/admin/auth).
     // 3. Update the fields below to match the properties of this auth provider
-    //    (https://docs.sourcegraph.com/admin/repo/permissions#sudo-access-token).`,
+    //    (https://sourcegraph.com/docs/admin/permissions).`,
 }
 
-const Field = (props: { children: React.ReactChildren | string | string[] }): JSX.Element => (
+const Field: React.FunctionComponent<{ children: React.ReactNode | string | string[] }> = props => (
     <Code className="hljs-type">{props.children}</Code>
 )
 
-const Value = (props: { children: React.ReactChildren | string | string[] }): JSX.Element => (
+const Value: React.FunctionComponent<{ children: React.ReactNode | string | string[] }> = props => (
     <Code className="hljs-attr">{props.children}</Code>
 )
 
-const githubInstructions = (isEnterprise: boolean): JSX.Element => (
+const GitHubInstructions: React.FunctionComponent<{ isEnterprise: boolean }> = ({ isEnterprise }) => (
     <div>
         <ol>
             {isEnterprise && (
@@ -172,11 +195,7 @@ const githubInstructions = (isEnterprise: boolean): JSX.Element => (
         </ol>
         <Text>
             See{' '}
-            <Link
-                rel="noopener noreferrer"
-                target="_blank"
-                to="https://docs.sourcegraph.com/admin/external_service/github#configuration"
-            >
+            <Link rel="noopener noreferrer" target="_blank" to="/help/admin/code_hosts/github#configuration">
                 the docs for more options
             </Link>
             , or try one of the buttons below.
@@ -184,7 +203,28 @@ const githubInstructions = (isEnterprise: boolean): JSX.Element => (
     </div>
 )
 
-const gitlabInstructions = (isSelfManaged: boolean): JSX.Element => (
+const GitHubAppInstructions: React.FunctionComponent = () => (
+    <div>
+        <ol>
+            <li>
+                Choose a GitHub App to populate the initial JSON configuration in <Code>gitHubAppDetails</Code>.
+            </li>
+            <li>
+                If applicable, choose an associated installation. If your GitHub App has only one installation, this
+                will be pre-populated along with other GitHub App information in <Code>orgs</Code>.
+            </li>
+        </ol>
+        <Text>
+            See {/* TODO: proper docs link here */}
+            <Link rel="noopener noreferrer" target="_blank" to="">
+                the docs for more options
+            </Link>
+            , or try one of the buttons below.
+        </Text>
+    </div>
+)
+
+const GitLabInstructions: React.FunctionComponent<{ isSelfManaged: boolean }> = ({ isSelfManaged }) => (
     <div>
         <ol>
             {isSelfManaged && (
@@ -240,11 +280,7 @@ const gitlabInstructions = (isSelfManaged: boolean): JSX.Element => (
         </ol>
         <Text>
             See{' '}
-            <Link
-                rel="noopener noreferrer"
-                target="_blank"
-                to="https://docs.sourcegraph.com/admin/external_service/gitlab#configuration"
-            >
+            <Link rel="noopener noreferrer" target="_blank" to="/help/admin/code_hosts/gitlab#configuration">
                 the docs for more options
             </Link>
             , or try one of the buttons below.
@@ -260,7 +296,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
                   label: 'Set GitHub URL',
                   run: (config: string) => {
                       const value = 'https://github.example.com'
-                      const edits = setProperty(config, ['url'], value, defaultFormattingOptions)
+                      const edits = modify(config, ['url'], value, defaultModificationOptions)
                       return { edits, selectText: value }
                   },
               },
@@ -271,7 +307,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Set access token',
         run: (config: string) => {
             const value = '<access token>'
-            const edits = setProperty(config, ['token'], value, defaultFormattingOptions)
+            const edits = modify(config, ['token'], value, defaultModificationOptions)
             return { edits, selectText: '<access token>' }
         },
     },
@@ -280,7 +316,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Add repositories in an organization',
         run: (config: string) => {
             const value = '<organization name>'
-            const edits = setProperty(config, ['orgs', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['orgs', -1], value, defaultModificationOptions)
             return { edits, selectText: '<organization name>' }
         },
     },
@@ -289,7 +325,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Add repositories matching a search query',
         run: (config: string) => {
             const value = '<search query>'
-            const edits = setProperty(config, ['repositoryQuery', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['repositoryQuery', -1], value, defaultModificationOptions)
             return { edits, selectText: '<search query>' }
         },
     },
@@ -298,7 +334,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Add repositories affiliated with token',
         run: (config: string) => {
             const value = 'affiliated'
-            const edits = setProperty(config, ['repositoryQuery', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['repositoryQuery', -1], value, defaultModificationOptions)
             return { edits, selectText: 'affiliated' }
         },
     },
@@ -307,7 +343,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Add a single repository',
         run: (config: string) => {
             const value = '<owner>/<repository>'
-            const edits = setProperty(config, ['repos', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['repos', -1], value, defaultModificationOptions)
             return { edits, selectText: '<owner>/<repository>' }
         },
     },
@@ -316,7 +352,7 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Exclude a repository',
         run: (config: string) => {
             const value = { name: '<owner>/<repository>' }
-            const edits = setProperty(config, ['exclude', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['exclude', -1], value, defaultModificationOptions)
             return { edits, selectText: '<owner>/<repository>' }
         },
     },
@@ -337,11 +373,30 @@ const githubEditorActions = (isEnterprise: boolean): EditorAction[] => [
         label: 'Add webhook',
         run: (config: string) => {
             const value = { org: '<your_org_on_GitHub>', secret: '<any_secret_string>' }
-            const edits = setProperty(config, ['webhooks', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['webhooks', -1], value, defaultModificationOptions)
             return { edits, selectText: '<your_org_on_GitHub>' }
         },
     },
 ]
+
+const gitHubAppEditorActions = (): EditorAction[] => {
+    const actions = githubEditorActions(true).filter(
+        item =>
+            !['setURL', 'setAccessToken', 'addAffiliatedRepos', 'enablePermissions', 'addWebhooks'].includes(item.id)
+    )
+    return [
+        {
+            id: 'addAffiliatedRepos',
+            label: 'Add repositories affiliated with app installation',
+            run: (config: string) => {
+                const value = 'affiliated'
+                const edits = modify(config, ['repositoryQuery', -1], value, defaultModificationOptions)
+                return { edits, selectText: 'affiliated' }
+            },
+        },
+        ...actions,
+    ]
+}
 
 const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
     ...(isSelfManaged
@@ -351,7 +406,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
                   label: 'Set GitLab URL',
                   run: (config: string) => {
                       const value = 'https://gitlab.example.com'
-                      const edits = setProperty(config, ['url'], value, defaultFormattingOptions)
+                      const edits = modify(config, ['url'], value, defaultModificationOptions)
                       return { edits, selectText: value }
                   },
               },
@@ -362,7 +417,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: 'Set access token',
         run: (config: string) => {
             const value = '<access token>'
-            const edits = setProperty(config, ['token'], value, defaultFormattingOptions)
+            const edits = modify(config, ['token'], value, defaultModificationOptions)
             return { edits, selectText: value }
         },
     },
@@ -371,7 +426,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: 'Add projects in a group',
         run: (config: string) => {
             const value = 'groups/<my group>/projects'
-            const edits = setProperty(config, ['projectQuery', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['projectQuery', -1], value, defaultModificationOptions)
             return { edits, selectText: '<my group>' }
         },
     },
@@ -380,7 +435,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: "Add projects that have the token's user as member",
         run: (config: string) => {
             const value = 'projects?membership=true&archived=no'
-            const edits = setProperty(config, ['projectQuery', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['projectQuery', -1], value, defaultModificationOptions)
             return { edits, selectText: value }
         },
     },
@@ -388,7 +443,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         id: 'addProjectsMatchingSearch',
         label: 'Add projects matching search',
         run: (config: string) => ({
-            edits: setProperty(config, ['projectQuery', -1], '?search=<search query>', defaultFormattingOptions),
+            edits: modify(config, ['projectQuery', -1], '?search=<search query>', defaultModificationOptions),
             selectText: '<search query>',
         }),
     },
@@ -397,7 +452,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: 'Add single project by name',
         run: (config: string) => {
             const value = { name: '<group>/<name>' }
-            const edits = setProperty(config, ['projects', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['projects', -1], value, defaultModificationOptions)
             return { edits, selectText: '<group>/<name>' }
         },
     },
@@ -406,7 +461,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: 'Add single project by ID',
         run: (config: string) => {
             const value = { id: 123 }
-            const edits = setProperty(config, ['projects', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['projects', -1], value, defaultModificationOptions)
             return { edits, selectText: '123' }
         },
     },
@@ -417,7 +472,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
                   label: 'Add internal projects',
                   run: (config: string) => {
                       const value = 'projects?visibility=internal'
-                      const edits = setProperty(config, ['projectQuery', -1], value, defaultFormattingOptions)
+                      const edits = modify(config, ['projectQuery', -1], value, defaultModificationOptions)
                       return { edits, selectText: value }
                   },
               },
@@ -426,7 +481,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
                   label: 'Add private projects',
                   run: (config: string) => {
                       const value = 'projects?visibility=private'
-                      const edits = setProperty(config, ['projectQuery', -1], value, defaultFormattingOptions)
+                      const edits = modify(config, ['projectQuery', -1], value, defaultModificationOptions)
                       return { edits, selectText: value }
                   },
               },
@@ -437,7 +492,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: 'Exclude a project',
         run: (config: string) => {
             const value = { name: '<group>/<project>' }
-            const edits = setProperty(config, ['exclude', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['exclude', -1], value, defaultModificationOptions)
             return { edits, selectText: '"<group>/<project>"' }
         },
     },
@@ -482,7 +537,7 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
                   label: 'Set internal or self-signed certificate',
                   run: (config: string) => {
                       const value = '<certificate>'
-                      const edits = setProperty(config, ['certificate'], value, defaultFormattingOptions)
+                      const edits = modify(config, ['certificate'], value, defaultModificationOptions)
                       return { edits, selectText: value }
                   },
               },
@@ -509,37 +564,66 @@ const gitlabEditorActions = (isSelfManaged: boolean): EditorAction[] => [
         label: 'Add webhook',
         run: (config: string) => {
             const value = { secret: '<any_secret_string>' }
-            const edits = setProperty(config, ['webhooks', -1], value, defaultFormattingOptions)
+            const edits = modify(config, ['webhooks', -1], value, defaultModificationOptions)
             return { edits, selectText: '<any_secret_string>' }
         },
     },
 ]
 
-const GITHUB_DOTCOM: AddExternalServiceOptions = {
+const azureDevOpsEditorActions = (): EditorAction[] => [
+    {
+        id: 'excludeRepo',
+        label: 'Exclude a repository',
+        run: (config: string) => {
+            const value = { name: '<project>/<repository>' }
+            const edits = modify(config, ['exclude', -1], value, defaultModificationOptions)
+            return { edits, selectText: '<project>/<repository>' }
+        },
+    },
+]
+
+export const GITHUB: AddExternalServiceOptions = {
     kind: ExternalServiceKind.GITHUB,
-    title: 'GitHub',
+    shortDescription: 'Cloud-hosted or Self-hosted using an access token',
+    title: 'GitHub.com or Enterprise',
     icon: GithubIcon,
     jsonSchema: githubSchemaJSON,
     editorActions: githubEditorActions(false),
-    instructions: githubInstructions(false),
+    Instructions: () => <GitHubInstructions isEnterprise={false} />,
     defaultDisplayName: 'GitHub',
-    defaultConfig: `{
-  "url": "https://github.com",
-  "token": "<access token>",
-  "orgs": []
-}`,
-}
-const GITHUB_ENTERPRISE: AddExternalServiceOptions = {
-    ...GITHUB_DOTCOM,
-    title: 'GitHub Enterprise',
     defaultConfig: `{
   "url": "https://github.example.com",
   "token": "<access token>",
   "orgs": []
 }`,
-    editorActions: githubEditorActions(true),
-    instructions: githubInstructions(true),
 }
+const GITHUB_APP: AddExternalServiceOptions = {
+    ...GITHUB,
+    title: 'GitHub App',
+    shortDescription:
+        'Connect repositories on GitHub.com or self-hosted GitHub Enterprise installations using a GitHub App installation',
+    editorActions: gitHubAppEditorActions(),
+    Instructions: () => <GitHubAppInstructions />,
+    additionalFormComponent: <GitHubAppSelector />,
+}
+export const gitHubAppConfig = (
+    baseURL: string | null,
+    appID: string | null,
+    installationID: string | null
+): AddExternalServiceOptions => ({
+    ...GITHUB_APP,
+    defaultConfig: `{
+  "url": "${baseURL ? decodeURI(baseURL) : ''}",
+  "gitHubAppDetails": {
+    "installationID": ${installationID ?? -1},
+    "appID": ${appID ?? -1},
+    "baseURL": "${baseURL ?? ''}",
+    "cloneAllRepositories": true
+  },
+  "authorization": {}
+}`,
+})
+
 const AWS_CODE_COMMIT: AddExternalServiceOptions = {
     kind: ExternalServiceKind.AWSCODECOMMIT,
     title: 'AWS CodeCommit repositories',
@@ -555,13 +639,13 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
     "password": "<password>"
   }
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
                     Obtain your AWS Secret Access Key and key ID:
                     <ul>
-                        <li>Log in to your AWS Management Console.</li>
+                        <li>Sign in to your AWS Management Console.</li>
                         <li>Click your username in the upper right corner of the page.</li>
                         <li>Click on "My Security Credentials".</li>
                         <li>Scroll to the section, "Access keys for CLI, SDK, & API access".</li>
@@ -601,7 +685,7 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
                 <Link
                     rel="noopener noreferrer"
                     target="_blank"
-                    to="https://docs.sourcegraph.com/admin/external_service/aws_codecommit#configuration"
+                    to="/help/admin/code_hosts/aws_codecommit#configuration"
                 >
                     the docs for more options
                 </Link>
@@ -615,7 +699,7 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
             label: 'Set access key ID',
             run: (config: string) => {
                 const value = '<access key id>'
-                const edits = setProperty(config, ['accessKeyID'], value, defaultFormattingOptions)
+                const edits = modify(config, ['accessKeyID'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -624,7 +708,7 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
             label: 'Set secret access key',
             run: (config: string) => {
                 const value = '<secret access key>'
-                const edits = setProperty(config, ['secretAccessKey'], value, defaultFormattingOptions)
+                const edits = modify(config, ['secretAccessKey'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -633,7 +717,7 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
             label: 'Set region',
             run: (config: string) => {
                 const value = '<region>'
-                const edits = setProperty(config, ['region'], value, defaultFormattingOptions)
+                const edits = modify(config, ['region'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -645,7 +729,7 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
                     username: '<username>',
                     password: '<password>',
                 }
-                const edits = setProperty(config, ['gitCredentials'], value, defaultFormattingOptions)
+                const edits = modify(config, ['gitCredentials'], value, defaultModificationOptions)
                 return { edits, selectText: '<username>' }
             },
         },
@@ -654,7 +738,7 @@ const AWS_CODE_COMMIT: AddExternalServiceOptions = {
             label: 'Exclude a repository',
             run: (config: string) => {
                 const value = { name: '<owner>/<repository>' }
-                const edits = setProperty(config, ['exclude', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['exclude', -1], value, defaultModificationOptions)
                 return { edits, selectText: '<owner>/<repository>' }
             },
         },
@@ -678,7 +762,7 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
             label: 'Set app password',
             run: (config: string) => {
                 const value = '<app password>'
-                const edits = setProperty(config, ['appPassword'], value, defaultFormattingOptions)
+                const edits = modify(config, ['appPassword'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -687,7 +771,7 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
             label: 'Set username',
             run: (config: string) => {
                 const value = '<username to which the app password belongs>'
-                const edits = setProperty(config, ['username'], value, defaultFormattingOptions)
+                const edits = modify(config, ['username'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -696,7 +780,7 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
             label: 'Add repositories belonging to team',
             run: (config: string) => {
                 const value = '<team>'
-                const edits = setProperty(config, ['teams', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['teams', -1], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -705,12 +789,12 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
             label: 'Enable webhooks',
             run: (config: string) => {
                 const value = '<any_secret_string>'
-                const edits = setProperty(config, ['webhookSecret'], value, defaultFormattingOptions)
+                const edits = modify(config, ['webhookSecret'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
     ],
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -722,8 +806,24 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
                     >
                         instructions
                     </Link>
-                    ) with <b>read</b> scope over your repositories and teams. Set it to be the value of the{' '}
-                    <Field>appPassword</Field> field in the configuration below.
+                    ) with the following scopes:
+                    <ul>
+                        <li>
+                            <strong>Workspace membership</strong>: Read
+                        </li>
+                        <li>
+                            <strong>Repositories</strong>: Read
+                            <ul>
+                                <li>
+                                    To enable repository permissions syncing, <strong>Repositories</strong>: Admin is
+                                    required.
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li>
+                    Paste your app password in the <Field>appPassword</Field> field in the configuration below.
                 </li>
                 <li>
                     Set the <Field>username</Field> field to be the username corresponding to <Field>appPassword</Field>
@@ -739,7 +839,7 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
                 <Link
                     rel="noopener noreferrer"
                     target="_blank"
-                    to="https://docs.sourcegraph.com/admin/external_service/bitbucket_cloud#configuration"
+                    to="/help/admin/code_hosts/bitbucket_cloud#configuration"
                 >
                     the docs for more options
                 </Link>
@@ -747,6 +847,7 @@ const BITBUCKET_CLOUD: AddExternalServiceOptions = {
             </Text>
         </div>
     ),
+    shortDescription: 'Cloud-hosted using credentials',
 }
 const BITBUCKET_SERVER: AddExternalServiceOptions = {
     kind: ExternalServiceKind.BITBUCKETSERVER,
@@ -762,7 +863,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
     "all"
   ]
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -828,7 +929,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
                 <Link
                     rel="noopener noreferrer"
                     target="_blank"
-                    to="https://docs.sourcegraph.com/admin/external_service/bitbucket_server#configuration"
+                    to="/help/admin/code_hosts/bitbucket_server#configuration"
                 >
                     the docs for more options
                 </Link>
@@ -842,7 +943,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Set URL',
             run: (config: string) => {
                 const value = 'https://bitbucket.example.com'
-                const edits = setProperty(config, ['url'], value, defaultFormattingOptions)
+                const edits = modify(config, ['url'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -851,7 +952,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Set access token',
             run: (config: string) => {
                 const value = '<access token>'
-                const edits = setProperty(config, ['token'], value, defaultFormattingOptions)
+                const edits = modify(config, ['token'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -860,7 +961,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Set username',
             run: (config: string) => {
                 const value = '<username that created access token>'
-                const edits = setProperty(config, ['username'], value, defaultFormattingOptions)
+                const edits = modify(config, ['username'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -869,7 +970,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Add repositories in a project',
             run: (config: string) => {
                 const value = '?projectname=<project>'
-                const edits = setProperty(config, ['repositoryQuery', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['repositoryQuery', -1], value, defaultModificationOptions)
                 return { edits, selectText: '<project>' }
             },
         },
@@ -878,7 +979,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Add individual repository',
             run: (config: string) => {
                 const value = '<project/<repository>'
-                const edits = setProperty(config, ['repos', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['repos', -1], value, defaultModificationOptions)
                 return { edits, selectText: '<project/<repository>' }
             },
         },
@@ -887,7 +988,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Exclude a repository',
             run: (config: string) => {
                 const value = { name: '<project/<repository>' }
-                const edits = setProperty(config, ['exclude', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['exclude', -1], value, defaultModificationOptions)
                 return { edits, selectText: '{"name": "<project/<repository>"}' }
             },
         },
@@ -896,7 +997,7 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Set internal or self-signed certificate',
             run: (config: string) => {
                 const value = '<certificate>'
-                const edits = setProperty(config, ['certificate'], value, defaultFormattingOptions)
+                const edits = modify(config, ['certificate'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -905,33 +1006,20 @@ const BITBUCKET_SERVER: AddExternalServiceOptions = {
             label: 'Enable webhooks',
             run: (config: string) => {
                 const value = { webhooks: { secret: '<any_secret_string>' } }
-                const edits = setProperty(config, ['plugin'], value, defaultFormattingOptions)
+                const edits = modify(config, ['plugin'], value, defaultModificationOptions)
                 return { edits, selectText: '<any_secret_string>' }
             },
         },
     ],
+    shortDescription: 'Self-hosted using an access token',
 }
-const GITLAB_DOTCOM: AddExternalServiceOptions = {
+const GITLAB: AddExternalServiceOptions = {
     kind: ExternalServiceKind.GITLAB,
     title: 'GitLab',
     icon: GitLabIcon,
+    shortDescription: 'Connect cloud-hosted or self-hosted repositories on GitLab',
     jsonSchema: gitlabSchemaJSON,
     defaultDisplayName: 'GitLab',
-    defaultConfig: `{
-  "url": "https://gitlab.com",
-  "token": "<access token>",
-  "projectQuery": [
-    "projects?membership=true&archived=no"
-  ]
-}`,
-    editorActions: gitlabEditorActions(false),
-    instructions: gitlabInstructions(false),
-}
-const GITLAB_SELF_MANAGED: AddExternalServiceOptions = {
-    ...GITLAB_DOTCOM,
-    title: 'GitLab Self-Managed',
-    instructions: gitlabInstructions(true),
-    editorActions: gitlabEditorActions(true),
     defaultConfig: `{
   "url": "https://gitlab.example.com",
   "token": "<access token>",
@@ -939,6 +1027,8 @@ const GITLAB_SELF_MANAGED: AddExternalServiceOptions = {
     "projects?membership=true&archived=no"
   ]
 }`,
+    editorActions: gitlabEditorActions(false),
+    Instructions: () => <GitLabInstructions isSelfManaged={false} />,
 }
 const SRC_SERVE_GIT: AddExternalServiceOptions = {
     kind: ExternalServiceKind.OTHER,
@@ -954,7 +1044,7 @@ const SRC_SERVE_GIT: AddExternalServiceOptions = {
   // Do not change this. Sourcegraph uses this as a signal that url is 'src serve'.
   "repos": ["src-serve"]
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <Text>
                 In the configuration below, set <Field>url</Field> to be the URL of src serve-git.
@@ -974,7 +1064,7 @@ const SRC_SERVE_GIT: AddExternalServiceOptions = {
             label: 'Sourcegraph in Docker and src serve-git running on host',
             run: (config: string) => {
                 const value = 'http://host.docker.internal:3434'
-                const edits = setProperty(config, ['url'], value, defaultFormattingOptions)
+                const edits = modify(config, ['url'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -990,7 +1080,7 @@ const GITOLITE: AddExternalServiceOptions = {
   "host": "git@gitolite.example.com",
   "prefix": "gitolite.example.com/"
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1004,11 +1094,7 @@ const GITOLITE: AddExternalServiceOptions = {
             </ol>
             <Text>
                 See{' '}
-                <Link
-                    rel="noopener noreferrer"
-                    target="_blank"
-                    to="https://docs.sourcegraph.com/admin/external_service/gitolite#configuration"
-                >
+                <Link rel="noopener noreferrer" target="_blank" to="/help/admin/code_hosts/gitolite#configuration">
                     the docs for more advanced options
                 </Link>
                 , or try one of the buttons below.
@@ -1021,7 +1107,7 @@ const GITOLITE: AddExternalServiceOptions = {
             label: 'Set host',
             run: (config: string) => {
                 const value = 'git@gitolite.example.com'
-                const edits = setProperty(config, ['host'], value, defaultFormattingOptions)
+                const edits = modify(config, ['host'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -1030,8 +1116,17 @@ const GITOLITE: AddExternalServiceOptions = {
             label: 'Set prefix',
             run: (config: string) => {
                 const value = 'gitolite.example.com/'
-                const edits = setProperty(config, ['prefix'], value, defaultFormattingOptions)
+                const edits = modify(config, ['prefix'], value, defaultModificationOptions)
                 return { edits, selectText: value }
+            },
+        },
+        {
+            id: 'excludeRepo',
+            label: 'Exclude a repository',
+            run: (config: string) => {
+                const value = { name: '<name>' }
+                const edits = modify(config, ['exclude', -1], value, defaultModificationOptions)
+                return { edits, selectText: '<name>' }
             },
         },
     ],
@@ -1045,13 +1140,13 @@ const PHABRICATOR_SERVICE: AddExternalServiceOptions = {
     jsonSchema: phabricatorSchemaJSON,
     defaultDisplayName: 'Phabricator',
     defaultConfig: `{
-// Use Ctrl+Space for completion, and hover over JSON properties for documentation.
-// Configuration options are documented here:
-// https://docs.sourcegraph.com/admin/external_service/phabricator#configuration
+  // Use Ctrl+Space for completion, and hover over JSON properties for documentation.
+  // Configuration options are documented here:
+  // https://sourcegraph.com/docs/admin/code_hosts/phabricator#configuration
 
-"url": "https://phabricator.example.com",
-"token": "",
-"repos": []
+  "url": "https://phabricator.example.com",
+  "token": "",
+  "repos": []
 }`,
     editorActions: [
         {
@@ -1059,7 +1154,7 @@ const PHABRICATOR_SERVICE: AddExternalServiceOptions = {
             label: 'Set Phabricator URL',
             run: (config: string) => {
                 const value = 'https://phabricator.example.com'
-                const edits = setProperty(config, ['url'], value, defaultFormattingOptions)
+                const edits = modify(config, ['url'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -1068,7 +1163,7 @@ const PHABRICATOR_SERVICE: AddExternalServiceOptions = {
             label: 'Set Phabricator access token',
             run: (config: string) => {
                 const value = '<Phabricator access token>'
-                const edits = setProperty(config, ['token'], value, defaultFormattingOptions)
+                const edits = modify(config, ['token'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -1080,7 +1175,7 @@ const PHABRICATOR_SERVICE: AddExternalServiceOptions = {
                     callsign: '<Phabricator repository callsign>',
                     path: '<Sourcegraph repository full name>',
                 }
-                const edits = setProperty(config, ['repos', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['repos', -1], value, defaultModificationOptions)
                 return { edits, selectText: '<Phabricator repository callsign>' }
             },
         },
@@ -1096,7 +1191,7 @@ const GENERIC_GIT: AddExternalServiceOptions = {
   "url": "https://git.example.com",
   "repos": []
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1109,11 +1204,7 @@ const GENERIC_GIT: AddExternalServiceOptions = {
             </ol>
             <Text>
                 See{' '}
-                <Link
-                    rel="noopener noreferrer"
-                    target="_blank"
-                    to="https://docs.sourcegraph.com/admin/external_service/other#configuration"
-                >
+                <Link rel="noopener noreferrer" target="_blank" to="/help/admin/code_hosts/other#configuration">
                     the docs for more options
                 </Link>
                 , or try one of the buttons below.
@@ -1126,7 +1217,7 @@ const GENERIC_GIT: AddExternalServiceOptions = {
             label: 'Set Git host URL',
             run: (config: string) => {
                 const value = 'https://git.example.com'
-                const edits = setProperty(config, ['url'], value, defaultFormattingOptions)
+                const edits = modify(config, ['url'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -1135,12 +1226,13 @@ const GENERIC_GIT: AddExternalServiceOptions = {
             label: 'Add a repository',
             run: (config: string) => {
                 const value = 'path/to/repository'
-                const edits = setProperty(config, ['repos', -1], value, defaultFormattingOptions)
+                const edits = modify(config, ['repos', -1], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
     ],
 }
+
 const PERFORCE: AddExternalServiceOptions = {
     kind: ExternalServiceKind.PERFORCE,
     title: 'Perforce',
@@ -1153,7 +1245,7 @@ const PERFORCE: AddExternalServiceOptions = {
   "p4.passwd": "<ticket value>",
   "depots": []
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1168,11 +1260,7 @@ const PERFORCE: AddExternalServiceOptions = {
             </ol>
             <Text>
                 See{' '}
-                <Link
-                    rel="noopener noreferrer"
-                    target="_blank"
-                    to="https://docs.sourcegraph.com/admin/repo/perforce#configuration"
-                >
+                <Link rel="noopener noreferrer" target="_blank" to="/help/admin/repo/perforce#configuration">
                     the docs for more advanced options
                 </Link>
                 , or try one of the buttons below.
@@ -1185,7 +1273,7 @@ const PERFORCE: AddExternalServiceOptions = {
             label: 'Set max changes',
             run: (config: string) => {
                 const value = 1000
-                const edits = setProperty(config, ['maxChanges'], value, defaultFormattingOptions)
+                const edits = modify(config, ['maxChanges'], value, defaultModificationOptions)
                 return { edits, selectText: value }
             },
         },
@@ -1194,7 +1282,7 @@ const PERFORCE: AddExternalServiceOptions = {
             label: 'Enforce permissions',
             run: (config: string) => {
                 const value = {}
-                const edits = setProperty(config, ['authorization'], value, defaultFormattingOptions)
+                const edits = modify(config, ['authorization'], value, defaultModificationOptions)
                 return { edits, selectText: '"authorization": {}' }
             },
         },
@@ -1212,7 +1300,7 @@ const JVM_PACKAGES: AddExternalServiceOptions = {
     "dependencies": []
   }
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1243,7 +1331,7 @@ const PAGURE: AddExternalServiceOptions = {
     defaultConfig: `{
   "url": "https://pagure.example.com",
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1258,22 +1346,75 @@ const PAGURE: AddExternalServiceOptions = {
 const GERRIT: AddExternalServiceOptions = {
     kind: ExternalServiceKind.GERRIT,
     title: 'Gerrit',
-    icon: GitIcon,
+    icon: GerritIcon,
     jsonSchema: gerritSchemaJSON,
     defaultDisplayName: 'Gerrit',
     defaultConfig: `{
   "url": "https://gerrit.example.com",
+  "username": "<fill in>",
+  "password": "<fill in>"
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
                     In the configuration below, set <Field>url</Field> to the URL of Gerrit instance.
                 </li>
+                <li>
+                    Provide <Field>username</Field> and <Field>password</Field> of a user account that has access to all
+                    the repositories you want to sync.
+                </li>
+                <li>
+                    Optionally, use <Field>projects</Field> to limit syncing from the Gerrit instance to specific
+                    projects.
+                </li>
             </ol>
         </div>
     ),
     editorActions: [],
+    status: 'beta',
+}
+
+const AZUREDEVOPS: AddExternalServiceOptions = {
+    kind: ExternalServiceKind.AZUREDEVOPS,
+    title: 'Azure DevOps',
+    icon: AzureDevOpsIcon,
+    jsonSchema: azureDevOpsSchemaJSON,
+    defaultDisplayName: 'Azure DevOps',
+    defaultConfig: `{
+  "url": "https://dev.azure.com",
+  "username": "<username>",
+  "token": "<token>",
+  "orgs": [],
+  "projects": []
+}`,
+    Instructions: () => (
+        <div>
+            <ol>
+                <li>
+                    In the configuration below, set <Field>url</Field> to the URL of Azure DevOps Services:{' '}
+                    <Link to="https://dev.azure.com">https://dev.azure.com</Link>.
+                </li>
+                <li>
+                    In the configuration below, set <Field>username</Field> to the authenticated username for Azure
+                    DevOps Services.
+                </li>
+                <li>
+                    In the configuration below, set <Field>token</Field> to the authenticated token for Azure DevOps
+                    Services. See the{' '}
+                    <Link to="https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows#create-a-pat">
+                        Azure DevOps documentation
+                    </Link>{' '}
+                    for instructions on how to create a Personal Access Token.
+                </li>
+                <li>
+                    In the configuration below, set <Field>orgs</Field> and/or <Field>projects</Field> to the
+                    organizations/projects you want to sync repositories from.
+                </li>
+            </ol>
+        </div>
+    ),
+    editorActions: azureDevOpsEditorActions(),
 }
 
 const NPM_PACKAGES: AddExternalServiceOptions = {
@@ -1286,7 +1427,7 @@ const NPM_PACKAGES: AddExternalServiceOptions = {
   "registry": "https://registry.npmjs.org",
   "dependencies": []
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1311,7 +1452,7 @@ const NPM_PACKAGES: AddExternalServiceOptions = {
     editorActions: [],
 }
 
-const GO_MODULES = {
+const GO_MODULES: AddExternalServiceOptions = {
     kind: ExternalServiceKind.GOMODULES,
     title: 'Go Dependencies',
     icon: LanguageGoIcon,
@@ -1321,7 +1462,7 @@ const GO_MODULES = {
   "urls": ["https://proxy.golang.org"],
   "dependencies": []
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1342,7 +1483,7 @@ const GO_MODULES = {
     editorActions: [],
 }
 
-const PYTHON_PACKAGES = {
+const PYTHON_PACKAGES: AddExternalServiceOptions = {
     kind: ExternalServiceKind.PYTHONPACKAGES,
     title: 'Python Dependencies',
     icon: LanguagePythonIcon,
@@ -1352,7 +1493,7 @@ const PYTHON_PACKAGES = {
   "urls": ["https://pypi.org/simple"],
   "dependencies": []
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1374,7 +1515,7 @@ const PYTHON_PACKAGES = {
     editorActions: [],
 }
 
-const RUST_PACKAGES = {
+const RUST_PACKAGES: AddExternalServiceOptions = {
     kind: ExternalServiceKind.RUSTPACKAGES,
     title: 'Rust Dependencies',
     icon: LanguageRustIcon,
@@ -1383,7 +1524,7 @@ const RUST_PACKAGES = {
     defaultConfig: `{
   "dependencies": []
 }`,
-    instructions: (
+    Instructions: () => (
         <div>
             <ol>
                 <li>
@@ -1398,29 +1539,70 @@ const RUST_PACKAGES = {
     editorActions: [],
 }
 
+const RUBY_PACKAGES: AddExternalServiceOptions = {
+    kind: ExternalServiceKind.RUBYPACKAGES,
+    title: 'Ruby Dependencies',
+    icon: LanguageRubyIcon,
+    jsonSchema: rubyPackagesSchemaJSON,
+    defaultDisplayName: 'Ruby Dependencies',
+    defaultConfig: `{
+  "repository": "https://rubygems.org/",
+  "dependencies": ["shopify_api@12.0.0"]
+}`,
+    Instructions: () => (
+        <div>
+            <ol>
+                <li>
+                    The URL https://rubygems.org/ is used if the field
+                    <Code>"repository"</Code> is empty.
+                </li>
+                <li>
+                    Use the syntax <Code>"GEM_NAME@GEM_VERSION"</Code> to list a dependency for the{' '}
+                    <Code>"dependencies"</Code> field.
+                </li>
+                <li>
+                    The field <Code>"repository"</Code> is redacted because it can include <Code>admin:password</Code>{' '}
+                    credentials.
+                </li>
+                <li>
+                    See the{' '}
+                    <Link to="https://www.jfrog.com/confluence/display/JFROG/RubyGems+Repositories">
+                        Artifactory documentation for RubyGem repositories
+                    </Link>{' '}
+                    for details on how to configure an internal Artifactory repository.
+                </li>
+            </ol>
+            <Text>⚠️ Ruby package repositories are visible by all users of the Sourcegraph instance.</Text>
+            <Text>⚠️ It is only possible to register one Ruby packages code host per Sourcegraph instance.</Text>
+        </div>
+    ),
+    editorActions: [],
+}
+
 export const codeHostExternalServices: Record<string, AddExternalServiceOptions> = {
-    github: GITHUB_DOTCOM,
-    ghe: GITHUB_ENTERPRISE,
-    gitlabcom: GITLAB_DOTCOM,
-    gitlab: GITLAB_SELF_MANAGED,
+    github: GITHUB,
+    ghapp: GITHUB_APP,
+    gitlabcom: GITLAB,
     bitbucket: BITBUCKET_CLOUD,
     bitbucketserver: BITBUCKET_SERVER,
     aws_codecommit: AWS_CODE_COMMIT,
     srcservegit: SRC_SERVE_GIT,
     gitolite: GITOLITE,
     git: GENERIC_GIT,
-    goModules: GO_MODULES,
-    pythonPackages: PYTHON_PACKAGES,
-    rustPackages: RUST_PACKAGES,
-    ...(window.context?.experimentalFeatures?.perforce === 'enabled' ? { perforce: PERFORCE } : {}),
-    ...(window.context?.experimentalFeatures?.jvmPackages === 'disabled' ? {} : { jvmPackages: JVM_PACKAGES }),
+    gerrit: GERRIT,
+    azuredevops: AZUREDEVOPS,
+    phabricator: PHABRICATOR_SERVICE,
+    ...(window.context?.experimentalFeatures?.perforce !== 'disabled' ? { perforce: PERFORCE } : {}),
     ...(window.context?.experimentalFeatures?.pagure === 'enabled' ? { pagure: PAGURE } : {}),
-    ...(window.context?.experimentalFeatures?.gerrit === 'enabled' ? { gerrit: GERRIT } : {}),
-    ...(window.context?.experimentalFeatures?.npmPackages === 'disabled' ? {} : { npmPackages: NPM_PACKAGES }),
 }
 
 export const nonCodeHostExternalServices: Record<string, AddExternalServiceOptions> = {
-    phabricator: PHABRICATOR_SERVICE,
+    ...(window.context?.experimentalFeatures?.pythonPackages === 'enabled' ? { pythonPackages: PYTHON_PACKAGES } : {}),
+    ...(window.context?.experimentalFeatures?.rustPackages === 'enabled' ? { rustPackages: RUST_PACKAGES } : {}),
+    ...(window.context?.experimentalFeatures?.rubyPackages === 'enabled' ? { rubyPackages: RUBY_PACKAGES } : {}),
+    ...(window.context?.experimentalFeatures?.goPackages === 'enabled' ? { goModules: GO_MODULES } : {}),
+    ...(window.context?.experimentalFeatures?.jvmPackages === 'enabled' ? { jvmPackages: JVM_PACKAGES } : {}),
+    ...(window.context?.experimentalFeatures?.npmPackages === 'enabled' ? { npmPackages: NPM_PACKAGES } : {}),
 }
 
 export const allExternalServices = {
@@ -1429,20 +1611,74 @@ export const allExternalServices = {
 }
 
 export const defaultExternalServices: Record<ExternalServiceKind, AddExternalServiceOptions> = {
-    [ExternalServiceKind.GITHUB]: GITHUB_DOTCOM,
+    [ExternalServiceKind.GITHUB]: GITHUB,
+    [ExternalServiceKind.AZUREDEVOPS]: AZUREDEVOPS,
     [ExternalServiceKind.BITBUCKETCLOUD]: BITBUCKET_CLOUD,
     [ExternalServiceKind.BITBUCKETSERVER]: BITBUCKET_SERVER,
-    [ExternalServiceKind.GITLAB]: GITLAB_DOTCOM,
+    [ExternalServiceKind.GITLAB]: GITLAB,
     [ExternalServiceKind.GITOLITE]: GITOLITE,
     [ExternalServiceKind.PHABRICATOR]: PHABRICATOR_SERVICE,
     [ExternalServiceKind.OTHER]: GENERIC_GIT,
     [ExternalServiceKind.AWSCODECOMMIT]: AWS_CODE_COMMIT,
     [ExternalServiceKind.PERFORCE]: PERFORCE,
     [ExternalServiceKind.GERRIT]: GERRIT,
+    [ExternalServiceKind.PAGURE]: PAGURE,
     [ExternalServiceKind.GOMODULES]: GO_MODULES,
     [ExternalServiceKind.JVMPACKAGES]: JVM_PACKAGES,
-    [ExternalServiceKind.PAGURE]: PAGURE,
     [ExternalServiceKind.NPMPACKAGES]: NPM_PACKAGES,
     [ExternalServiceKind.PYTHONPACKAGES]: PYTHON_PACKAGES,
     [ExternalServiceKind.RUSTPACKAGES]: RUST_PACKAGES,
+    [ExternalServiceKind.RUBYPACKAGES]: RUBY_PACKAGES,
+}
+
+export const externalRepoIcon = (
+    externalRepo: Pick<ExternalRepositoryFields, 'serviceType'>
+): React.ComponentType<{ className?: string }> | undefined => {
+    const externalServiceKind = externalRepo.serviceType.toUpperCase() as ExternalServiceKind
+    return defaultExternalServices[externalServiceKind]?.icon ?? undefined
+}
+
+export const EXTERNAL_SERVICE_SYNC_RUNNING_STATUSES = new Set<ExternalServiceSyncJobState>([
+    ExternalServiceSyncJobState.QUEUED,
+    ExternalServiceSyncJobState.PROCESSING,
+    ExternalServiceSyncJobState.CANCELING,
+])
+
+export const resolveExternalServiceCategory = (
+    externalService: ExternalServiceFieldsWithConfig,
+    gitHubApp?: GitHubAppByAppIDResult['gitHubAppByAppID']
+): AddExternalServiceOptions => {
+    let externalServiceCategory = defaultExternalServices[externalService.kind]
+    if (externalService && [ExternalServiceKind.GITHUB, ExternalServiceKind.GITLAB].includes(externalService.kind)) {
+        let { parsedConfig } = externalService
+        if (!parsedConfig) {
+            parsedConfig = parseJSONC(externalService.config)
+        }
+        if (!parsedConfig) {
+            return externalServiceCategory
+        }
+        // if config contains gitHubAppDetails, we should use GitHub App instead
+        if (parsedConfig.gitHubAppDetails && gitHubApp) {
+            externalServiceCategory = { ...codeHostExternalServices.ghapp }
+            externalServiceCategory.additionalFormComponent = (
+                <GitHubAppSelector
+                    disabled={true}
+                    gitHubApp={{
+                        ...parsedConfig.gitHubAppDetails,
+                        ...gitHubApp,
+                    }}
+                />
+            )
+        }
+    }
+    return externalServiceCategory
+}
+
+export function isValidURL(url: string): boolean {
+    try {
+        new URL(url)
+        return true
+    } catch {
+        return false
+    }
 }

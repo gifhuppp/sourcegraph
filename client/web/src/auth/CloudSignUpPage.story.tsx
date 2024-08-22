@@ -1,34 +1,28 @@
-import { storiesOf } from '@storybook/react'
+import type { Meta, StoryFn } from '@storybook/react'
 import sinon from 'sinon'
 
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { NOOP_TELEMETRY_SERVICE } from '@sourcegraph/shared/src/telemetry/telemetryService'
 
 import { WebStory } from '../components/WebStory'
-import { SourcegraphContext } from '../jscontext'
+import type { SourcegraphContext } from '../jscontext'
 
 import { CloudSignUpPage } from './CloudSignUpPage'
 
-const { add } = storiesOf('web/auth/CloudSignUpPage', module)
-
-const context: Pick<SourcegraphContext, 'authProviders' | 'experimentalFeatures'> = {
-    authProviders: [
-        {
-            serviceType: 'github',
-            displayName: 'GitHub.com',
-            isBuiltin: false,
-            authenticationURL: '/.auth/github/login?pc=https%3A%2F%2Fgithub.com%2F',
-        },
-        {
-            serviceType: 'gitlab',
-            displayName: 'GitLab.com',
-            isBuiltin: false,
-            authenticationURL: '/.auth/gitlab/login?pc=https%3A%2F%2Fgitlab.com%2F',
-        },
-    ],
-    experimentalFeatures: {},
+const config: Meta = {
+    title: 'web/auth/CloudSignUpPage',
+    parameters: {},
 }
 
-add('default', () => (
+export default config
+
+const context: Pick<SourcegraphContext, 'externalURL' | 'experimentalFeatures' | 'authMinPasswordLength'> = {
+    experimentalFeatures: {},
+    authMinPasswordLength: 0,
+    externalURL: 'https://sourcegraph.test:3443',
+}
+
+export const Default: StoryFn = () => (
     <WebStory>
         {({ isLightTheme }) => (
             <CloudSignUpPage
@@ -38,12 +32,14 @@ add('default', () => (
                 context={context}
                 showEmailForm={false}
                 telemetryService={NOOP_TELEMETRY_SERVICE}
+                telemetryRecorder={noOpTelemetryRecorder}
+                isSourcegraphDotCom={true}
             />
         )}
     </WebStory>
-))
+)
 
-add('email form', () => (
+export const EmailForm: StoryFn = () => (
     <WebStory>
         {({ isLightTheme }) => (
             <CloudSignUpPage
@@ -53,12 +49,14 @@ add('email form', () => (
                 context={context}
                 showEmailForm={true}
                 telemetryService={NOOP_TELEMETRY_SERVICE}
+                telemetryRecorder={noOpTelemetryRecorder}
+                isSourcegraphDotCom={true}
             />
         )}
     </WebStory>
-))
+)
 
-add('invalid source', () => (
+export const InvalidSource: StoryFn = () => (
     <WebStory>
         {({ isLightTheme }) => (
             <CloudSignUpPage
@@ -68,12 +66,14 @@ add('invalid source', () => (
                 context={context}
                 showEmailForm={false}
                 telemetryService={NOOP_TELEMETRY_SERVICE}
+                telemetryRecorder={noOpTelemetryRecorder}
+                isSourcegraphDotCom={true}
             />
         )}
     </WebStory>
-))
+)
 
-add('Optimization signup', () => (
+export const OptimizationSignup: StoryFn = () => (
     <WebStory>
         {({ isLightTheme }) => (
             <CloudSignUpPage
@@ -83,7 +83,9 @@ add('Optimization signup', () => (
                 context={context}
                 showEmailForm={false}
                 telemetryService={NOOP_TELEMETRY_SERVICE}
+                telemetryRecorder={noOpTelemetryRecorder}
+                isSourcegraphDotCom={true}
             />
         )}
     </WebStory>
-))
+)

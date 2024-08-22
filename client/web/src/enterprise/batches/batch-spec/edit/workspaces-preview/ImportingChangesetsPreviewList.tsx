@@ -1,11 +1,10 @@
 import React from 'react'
 
-import ImportIcon from 'mdi-react/ImportIcon'
+import { mdiImport } from '@mdi/js'
 
-import { LinkOrSpan } from '@sourcegraph/shared/src/components/LinkOrSpan'
-import { Icon, H4 } from '@sourcegraph/wildcard'
+import { H3, H4, Icon, LinkOrSpan } from '@sourcegraph/wildcard'
 
-import { UseConnectionResult } from '../../../../../components/FilteredConnection/hooks/useConnection'
+import type { UseShowMorePaginationResult } from '../../../../../components/FilteredConnection/hooks/useShowMorePagination'
 import {
     ConnectionContainer,
     ConnectionList,
@@ -14,13 +13,17 @@ import {
     ShowMoreButton,
     SummaryContainer,
 } from '../../../../../components/FilteredConnection/ui'
+import type { BatchSpecImportingChangesetsResult } from '../../../../../graphql-operations'
 
-import { ImportingChangesetFields } from './useImportingChangesets'
+import type { ImportingChangesetFields } from './useImportingChangesets'
 
 import styles from './ImportingChangesetsPreviewList.module.scss'
 
 interface ImportingChangesetsPreviewListProps {
-    importingChangesetsConnection: UseConnectionResult<ImportingChangesetFields>
+    importingChangesetsConnection: UseShowMorePaginationResult<
+        BatchSpecImportingChangesetsResult,
+        ImportingChangesetFields
+    >
     /**
      * Whether or not the changesets in this list are up-to-date with the current batch
      * spec input YAML in the editor.
@@ -28,14 +31,14 @@ interface ImportingChangesetsPreviewListProps {
     isStale: boolean
 }
 
-const CHANGESETS_PER_PAGE_COUNT = 100
-
 export const ImportingChangesetsPreviewList: React.FunctionComponent<
     React.PropsWithChildren<ImportingChangesetsPreviewListProps>
 > = ({ importingChangesetsConnection: { connection, hasNextPage, fetchMore, loading }, isStale }) => (
     <ConnectionContainer className="w-100">
-        <H4 className="align-self-start w-100 mt-4">Importing changesets</H4>
-        <ConnectionList className="list-group list-group-flush w-100">
+        <H4 as={H3} className="align-self-start w-100 mt-4">
+            Importing changesets
+        </H4>
+        <ConnectionList className="list-group list-group-flush w-100" aria-label="changesets to be imported">
             {connection?.nodes.map(node =>
                 node.__typename === 'VisibleChangesetSpec' ? (
                     <li className="w-100" key={node.id}>
@@ -47,7 +50,7 @@ export const ImportingChangesetsPreviewList: React.FunctionComponent<
                                     : undefined
                             }
                         >
-                            <Icon role="img" aria-hidden={true} as={ImportIcon} />{' '}
+                            <Icon aria-hidden={true} svgPath={mdiImport} />{' '}
                             {node.description.__typename === 'ExistingChangesetReference' &&
                                 node.description.baseRepository.name}
                         </LinkOrSpan>{' '}
@@ -60,15 +63,15 @@ export const ImportingChangesetsPreviewList: React.FunctionComponent<
         {connection && (
             <SummaryContainer centered={true}>
                 <ConnectionSummary
+                    centered={true}
                     noSummaryIfAllNodesVisible={true}
-                    first={CHANGESETS_PER_PAGE_COUNT}
                     connection={connection}
                     noun="imported changeset"
                     pluralNoun="imported changesets"
                     hasNextPage={hasNextPage}
                     emptyElement={null}
                 />
-                {hasNextPage && <ShowMoreButton onClick={fetchMore} />}
+                {hasNextPage && <ShowMoreButton centered={true} onClick={fetchMore} />}
             </SummaryContainer>
         )}
     </ConnectionContainer>

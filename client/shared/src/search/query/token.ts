@@ -48,6 +48,8 @@ export interface Pattern extends BaseToken {
     type: 'pattern'
     kind: PatternKind
     value: string
+    delimited?: boolean
+    delimiter?: string
 }
 
 /**
@@ -59,6 +61,7 @@ export interface Literal extends BaseToken {
     type: 'literal'
     value: string
     quoted: boolean
+    quotes?: string
 }
 
 /**
@@ -119,9 +122,10 @@ export interface ClosingParen extends BaseToken {
     type: 'closingParen'
 }
 
-export const createLiteral = (value: string, range: CharacterRange, quoted = false): Literal => ({
+export const createLiteral = (value: string, range: CharacterRange, quoted = false, quotes?: string): Literal => ({
     type: 'literal',
     value,
     range,
     quoted,
+    quotes,
 })

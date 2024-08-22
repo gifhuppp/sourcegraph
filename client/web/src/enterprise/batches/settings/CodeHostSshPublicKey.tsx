@@ -1,8 +1,8 @@
 import React, { useCallback, useState } from 'react'
 
+import { mdiContentCopy } from '@mdi/js'
 import copy from 'copy-to-clipboard'
 import { noop } from 'lodash'
-import ContentCopyIcon from 'mdi-react/ContentCopyIcon'
 
 import { Button, TextArea, Link, Icon, Label, Text } from '@sourcegraph/wildcard'
 
@@ -15,6 +15,7 @@ const configInstructionLinks: Record<ExternalServiceKind, string> = {
     [ExternalServiceKind.BITBUCKETSERVER]:
         'https://confluence.atlassian.com/bitbucketserver/ssh-user-keys-for-personal-use-776639793.html',
     [ExternalServiceKind.AWSCODECOMMIT]: 'unsupported',
+    [ExternalServiceKind.AZUREDEVOPS]: 'unsupported',
     [ExternalServiceKind.BITBUCKETCLOUD]: 'unsupported',
     [ExternalServiceKind.GERRIT]: 'unsupported',
     [ExternalServiceKind.GITOLITE]: 'unsupported',
@@ -27,6 +28,7 @@ const configInstructionLinks: Record<ExternalServiceKind, string> = {
     [ExternalServiceKind.PHABRICATOR]: 'unsupported',
     [ExternalServiceKind.PYTHONPACKAGES]: 'unsupported',
     [ExternalServiceKind.RUSTPACKAGES]: 'unsupported',
+    [ExternalServiceKind.RUBYPACKAGES]: 'unsupported',
 }
 
 export interface CodeHostSshPublicKeyProps {
@@ -55,7 +57,7 @@ export const CodeHostSshPublicKey: React.FunctionComponent<React.PropsWithChildr
                 <Label htmlFor={LABEL_ID}>{label}</Label>
                 {showCopyButton && (
                     <Button onClick={onCopy} variant="secondary">
-                        <Icon role="img" aria-hidden={true} as={ContentCopyIcon} />
+                        <Icon aria-hidden={true} svgPath={mdiContentCopy} />
                         {copied ? 'Copied!' : 'Copy'}
                     </Button>
                 )}

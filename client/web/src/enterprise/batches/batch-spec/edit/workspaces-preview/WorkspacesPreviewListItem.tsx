@@ -1,14 +1,14 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
-import CloseIcon from 'mdi-react/CloseIcon'
+import { mdiClose } from '@mdi/js'
 
-import { Button, Icon } from '@sourcegraph/wildcard'
+import { Button, Icon, screenReaderAnnounce, Tooltip } from '@sourcegraph/wildcard'
 
-import {
+import type {
     PreviewHiddenBatchSpecWorkspaceFields,
     PreviewVisibleBatchSpecWorkspaceFields,
 } from '../../../../../graphql-operations'
-import { CachedIcon, Descriptor, ExcludeIcon, ListItem } from '../../../workspaces-list'
+import { CachedIcon, Descriptor, ExcludeIcon, ListItem, PartiallyCachedIcon } from '../../../workspaces-list'
 
 import styles from './WorkspacesPreviewListItem.module.scss'
 
@@ -20,11 +20,13 @@ interface WorkspacesPreviewListItemProps {
     exclude: (repo: string, branch: string) => void
     /** Whether or not the item presented should be read-only. */
     isReadOnly?: boolean
+    /** Whether using cached results is disabled. */
+    cacheDisabled?: boolean
 }
 
 export const WorkspacesPreviewListItem: React.FunctionComponent<
     React.PropsWithChildren<WorkspacesPreviewListItemProps>
-> = ({ workspace, isStale, exclude, isReadOnly = false }) => {
+> = ({ workspace, isStale, exclude, cacheDisabled, isReadOnly = false }) => {
     const [toBeExcluded, setToBeExcluded] = useState(false)
 
     const handleExclude = useCallback(() => {
@@ -33,12 +35,21 @@ export const WorkspacesPreviewListItem: React.FunctionComponent<
         }
         setToBeExcluded(true)
         exclude(workspace.repository.name, workspace.branch.displayName)
+        screenReaderAnnounce('Batch spec has been updated to exclude this workspace.')
     }, [exclude, workspace])
 
-    const statusIndicator = useMemo(
-        () => (toBeExcluded ? <ExcludeIcon /> : workspace.cachedResultFound ? <CachedIcon /> : undefined),
-        [toBeExcluded, workspace.cachedResultFound]
-    )
+    const statusIndicator = useMemo(() => {
+        if (toBeExcluded) {
+            return <ExcludeIcon />
+        }
+        if (workspace.cachedResultFound) {
+            return <CachedIcon cacheDisabled={cacheDisabled} />
+        }
+        if (workspace.stepCacheResultCount > 0) {
+            return <PartiallyCachedIcon cacheDisabled={cacheDisabled} count={workspace.stepCacheResultCount} />
+        }
+        return undefined
+    }, [cacheDisabled, toBeExcluded, workspace.cachedResultFound, workspace.stepCacheResultCount])
 
     return (
         <ListItem className={!isReadOnly && isStale ? styles.stale : undefined}>
@@ -56,12 +67,9 @@ export const WorkspacesPreviewListItem: React.FunctionComponent<
 const ExcludeButton: React.FunctionComponent<React.PropsWithChildren<{ handleExclude: () => void }>> = ({
     handleExclude,
 }) => (
-    <Button
-        aria-label="Omit this repository from batch spec file"
-        className="p-0 my-0 mx-2"
-        data-tooltip="Omit this repository from batch spec file"
-        onClick={handleExclude}
-    >
-        <Icon role="img" aria-hidden={true} as={CloseIcon} />
-    </Button>
+    <Tooltip content="Omit this repository from batch spec file">
+        <Button aria-label="Omit this repository" className="p-0 my-0 mx-2" onClick={handleExclude}>
+            <Icon aria-hidden={true} svgPath={mdiClose} />
+        </Button>
+    </Tooltip>
 )

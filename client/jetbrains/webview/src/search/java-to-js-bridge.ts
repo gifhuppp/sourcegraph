@@ -1,6 +1,14 @@
-import { PluginConfig, Theme } from './types'
-
-import { applyConfig, applyTheme, renderReactApp } from './index'
+import {
+    applyConfig,
+    applyTheme,
+    getAuthenticatedUser,
+    renderReactApp,
+    retrySearch,
+    updateVersionAndAuthDataFromServer,
+    wasServerAccessSuccessful,
+} from './index'
+import { indicateFinishedLoading } from './js-to-java-bridge'
+import type { PluginConfig, Theme } from './types'
 
 export type ActionName = 'themeChanged' | 'pluginSettingsChanged'
 
@@ -9,11 +17,11 @@ type PluginSettingsChangedRequestArguments = PluginConfig
 
 type JavaToJSRequestArguments = ThemeChangedRequestArguments | PluginSettingsChangedRequestArguments
 
-export function handleRequest(
+export async function handleRequest(
     action: ActionName,
     argumentsAsJsonString: string,
     callback: (result: string) => void
-): void {
+): Promise<void> {
     const argumentsAsObject = JSON.parse(argumentsAsJsonString) as JavaToJSRequestArguments
     if (action === 'themeChanged') {
         applyTheme(argumentsAsObject as ThemeChangedRequestArguments)
@@ -22,7 +30,20 @@ export function handleRequest(
     }
 
     if (action === 'pluginSettingsChanged') {
-        applyConfig(argumentsAsObject as PluginSettingsChangedRequestArguments)
+        const pluginConfig = argumentsAsObject as PluginSettingsChangedRequestArguments
+        applyConfig(pluginConfig)
+        await updateVersionAndAuthDataFromServer()
+        await indicateFinishedLoading(wasServerAccessSuccessful() || false, !!getAuthenticatedUser())
+        renderReactApp()
+        return callback(JSON.stringify(null))
+    }
+
+    if (action === 'retrySearch') {
+        if (!wasServerAccessSuccessful()) {
+            await updateVersionAndAuthDataFromServer()
+        }
+        await indicateFinishedLoading(wasServerAccessSuccessful() || false, !!getAuthenticatedUser())
+        retrySearch()
         renderReactApp()
         return callback(JSON.stringify(null))
     }

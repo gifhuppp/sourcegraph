@@ -1,2 +1,1 @@
-export { DatadogClient } from './datadog/datadogClient'
-export { isWebpackChunkError } from './shouldErrorBeReported'
+export { isChunkLoadError } from './shouldErrorBeReported'

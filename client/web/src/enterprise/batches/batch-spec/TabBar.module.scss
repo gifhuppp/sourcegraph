@@ -1,3 +1,17 @@
+.nav-list {
+    display: flex;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    padding-left: 0;
+    margin-bottom: 0;
+    list-style: none;
+    max-width: 100%;
+    overflow-x: auto;
+    // This prevents the active item border from being cut off, since .nav-item applies margin-bottom: -1px;
+    // stylelint-disable-next-line declaration-property-unit-allowed-list
+    padding-bottom: 1px;
+}
+
 .nav-link-disabled {
     opacity: 0.25;
 
@@ -22,14 +36,4 @@
         pointer-events: none;
         font-weight: 700;
     }
-}
-
-// Unset Button-y styles
-.button {
-    font-weight: unset;
-    padding: var(--nav-link-padding-y) var(--nav-link-padding-x);
-    letter-spacing: unset;
-    font-size: unset;
-    line-height: unset;
-    user-select: unset;
 }

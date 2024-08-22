@@ -1,22 +1,19 @@
-import { take } from 'rxjs/operators'
+import { firstValueFrom } from 'rxjs'
 
-import { TemporarySettings, TemporarySettingsSchema } from './TemporarySettings'
-import { TemporarySettingsStorage } from './TemporarySettingsStorage'
+import { logger } from '@sourcegraph/common'
+
+import type { TemporarySettings, TemporarySettingsSchema } from './TemporarySettings'
+import type { TemporarySettingsStorage } from './TemporarySettingsStorage'
 
 interface Migration {
     localStorageKey: string
     temporarySettingsKey: keyof TemporarySettings
-    type: 'boolean' | 'number' | 'json'
+    type: 'boolean' | 'number' | 'string' | 'json'
     transform?: (value: any) => any
     preserve?: boolean
 }
 
 const migrations: Migration[] = [
-    {
-        localStorageKey: 'has-cancelled-onboarding-tour',
-        temporarySettingsKey: 'search.onboarding.tourCancelled',
-        type: 'boolean',
-    },
     {
         localStorageKey: 'days-active-count',
         temporarySettingsKey: 'user.daysActiveCount',
@@ -38,16 +35,6 @@ const migrations: Migration[] = [
         type: 'boolean',
     },
     {
-        localStorageKey: 'hasDismissedBrowserExtensionAlert',
-        temporarySettingsKey: 'cta.browserExtensionAlertDismissed',
-        type: 'boolean',
-    },
-    {
-        localStorageKey: 'hasDismissedIdeExtensionAlert',
-        temporarySettingsKey: 'cta.ideExtensionAlertDismissed',
-        type: 'boolean',
-    },
-    {
         localStorageKey: 'quick-start-tour',
         temporarySettingsKey: 'onboarding.quickStartTour',
         type: 'json',
@@ -55,12 +42,18 @@ const migrations: Migration[] = [
             value.state.tours,
         preserve: true,
     },
+    {
+        localStorageKey: 'diff-mode-visualizer',
+        temporarySettingsKey: 'repo.commitPage.diffMode',
+        type: 'string',
+    },
 ]
 
 const parse = (type: Migration['type'], localStorageValue: string | null): boolean | number | any => {
     if (localStorageValue === null) {
         return
     }
+
     if (type === 'boolean') {
         return localStorageValue === 'true'
     }
@@ -72,6 +65,11 @@ const parse = (type: Migration['type'], localStorageValue: string | null): boole
     if (type === 'json') {
         return JSON.parse(localStorageValue)
     }
+
+    if (type === 'string') {
+        return localStorageValue
+    }
+
     return
 }
 
@@ -79,10 +77,11 @@ export async function migrateLocalStorageToTemporarySettings(storage: TemporaryS
     for (const migration of migrations) {
         // Use the first value of the setting to check if it exists.
         // Only migrate if the setting is not already set.
-        const temporarySetting = await storage.get(migration.temporarySettingsKey).pipe(take(1)).toPromise()
-        if (typeof temporarySetting === 'undefined') {
+        const temporarySetting = await firstValueFrom(storage.get(migration.temporarySettingsKey), {
+            defaultValue: undefined,
+        })
+        if (temporarySetting === undefined) {
             try {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 const value = parse(migration.type, localStorage.getItem(migration.localStorageKey))
                 if (!value) {
                     continue
@@ -93,7 +92,7 @@ export async function migrateLocalStorageToTemporarySettings(storage: TemporaryS
                     localStorage.removeItem(migration.localStorageKey)
                 }
             } catch (error) {
-                console.error(
+                logger.error(
                     `Failed to migrate temporary settings "${migration.temporarySettingsKey}" from localStorage using key "${migration.localStorageKey}"`,
                     error
                 )

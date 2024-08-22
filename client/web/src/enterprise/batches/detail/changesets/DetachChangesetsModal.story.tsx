@@ -1,23 +1,29 @@
 import { action } from '@storybook/addon-actions'
-import { storiesOf } from '@storybook/react'
+import type { StoryFn, Meta, Decorator } from '@storybook/react'
 import { noop } from 'lodash'
 
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { NOOP_TELEMETRY_SERVICE } from '@sourcegraph/shared/src/telemetry/telemetryService'
 
 import { WebStory } from '../../../../components/WebStory'
 
 import { DetachChangesetsModal } from './DetachChangesetsModal'
 
-const { add } = storiesOf('web/batches/details/DetachChangesetsModal', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+const config: Meta = {
+    title: 'web/batches/details/DetachChangesetsModal',
+    decorators: [decorator],
+}
+
+export default config
 
 const detachAction = () => {
     action('DetachChangesets')
     return Promise.resolve()
 }
 
-add('Confirmation', () => (
+export const Confirmation: StoryFn = () => (
     <WebStory>
         {props => (
             <DetachChangesetsModal
@@ -27,8 +33,9 @@ add('Confirmation', () => (
                 changesetIDs={['test-123', 'test-234']}
                 onCancel={noop}
                 telemetryService={NOOP_TELEMETRY_SERVICE}
+                telemetryRecorder={noOpTelemetryRecorder}
                 detachChangesets={detachAction}
             />
         )}
     </WebStory>
-))
+)

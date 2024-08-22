@@ -1,62 +1,89 @@
 package store
 
 import (
-	"github.com/sourcegraph/sourcegraph/internal/api"
+	"bytes"
+	"database/sql"
+	"encoding/json"
+	"time"
+
+	"github.com/lib/pq"
+
 	"github.com/sourcegraph/sourcegraph/internal/codeintel/dependencies/shared"
-	"github.com/sourcegraph/sourcegraph/internal/codeintel/types"
-	"github.com/sourcegraph/sourcegraph/internal/database/basestore"
 	"github.com/sourcegraph/sourcegraph/internal/database/dbutil"
+	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
 
-//
-// Scans `[]shared.PackageDepencency`
+func scanDependencyRepoWithVersions(s dbutil.Scanner) (shared.PackageRepoReference, error) {
+	var ref shared.PackageRepoReference
+	var (
+		versionStrings []string
+		ids            []int64
+		blocked        []bool
+		lastCheckedAt  []sql.NullString
+	)
+	err := s.Scan(
+		&ref.ID,
+		&ref.Scheme,
+		&ref.Name,
+		&ref.Blocked,
+		&ref.LastCheckedAt,
+		pq.Array(&ids),
+		pq.Array(&versionStrings),
+		pq.Array(&blocked),
+		pq.Array(&lastCheckedAt),
+	)
+	if err != nil {
+		return shared.PackageRepoReference{}, err
+	}
 
-var scanPackageDependencies = basestore.NewSliceScanner(func(s dbutil.Scanner) (shared.PackageDependency, error) {
-	var v shared.PackageDependencyLiteral
-	err := s.Scan(&v.RepoNameValue, &v.GitTagFromVersionValue, &v.SchemeValue, &v.PackageSyntaxValue, &v.PackageVersionValue)
-	return v, err
-})
-
-//
-// Scans `[]api.RepoCommit`
-
-var scanRepoCommits = basestore.NewSliceScanner(func(s dbutil.Scanner) (api.RepoCommit, error) {
-	var v api.RepoCommit
-	err := s.Scan(&v.Repo, &v.CommitID)
-	return v, err
-})
-
-//
-// Scans `map[api.RepoName]types.RevSpecSet`
-
-var scanRepoRevSpecSets = basestore.NewKeyedCollectionScanner[api.RepoName, api.RevSpec, types.RevSpecSet](scanRepoNameRevSpecPair, revSpecSetReducer{})
-
-var scanRepoNameRevSpecPair = func(s dbutil.Scanner) (repoName api.RepoName, revSpec api.RevSpec, _ error) {
-	err := s.Scan(&repoName, &revSpec)
-	return repoName, revSpec, err
+	ref.Versions = make([]shared.PackageRepoRefVersion, 0, len(versionStrings))
+	for i, version := range versionStrings {
+		// because pq.Array(&[]pq.NullTime) isnt supported...
+		var t *time.Time
+		if lastCheckedAt[i].Valid {
+			parsedT, err := pq.ParseTimestamp(nil, lastCheckedAt[i].String)
+			if err != nil {
+				return shared.PackageRepoReference{}, errors.Wrapf(err, "time string %q is not valid", lastCheckedAt[i].String)
+			}
+			t = &parsedT
+		}
+		ref.Versions = append(ref.Versions, shared.PackageRepoRefVersion{
+			ID:            int(ids[i]),
+			PackageRefID:  ref.ID,
+			Version:       version,
+			Blocked:       blocked[i],
+			LastCheckedAt: t,
+		})
+	}
+	return ref, err
 }
 
-type revSpecSetReducer struct{}
+func scanPackageFilter(s dbutil.Scanner) (shared.PackageRepoFilter, error) {
+	var filter shared.PackageRepoFilter
+	var data []byte
+	err := s.Scan(
+		&filter.ID,
+		&filter.Behaviour,
+		&filter.PackageScheme,
+		&data,
+		&filter.DeletedAt,
+		&filter.UpdatedAt,
+	)
+	if err != nil {
+		return shared.PackageRepoFilter{}, err
+	}
 
-func (r revSpecSetReducer) Create() types.RevSpecSet {
-	return types.RevSpecSet{}
+	b := bytes.NewReader(data)
+	d := json.NewDecoder(b)
+	d.DisallowUnknownFields()
+
+	if err := d.Decode(&filter.NameFilter); err != nil {
+		// d.Decode will set NameFilter to != nil even if theres an error, meaning we potentially
+		// have both NameFilter and VersionFilter set to not nil
+		filter.NameFilter = nil
+		b.Seek(0, 0)
+		return filter, d.Decode(&filter.VersionFilter)
+	}
+
+	return filter, nil
 }
-
-func (r revSpecSetReducer) Reduce(collection types.RevSpecSet, value api.RevSpec) types.RevSpecSet {
-	collection[value] = struct{}{}
-	return collection
-}
-
-//
-// Scans `shared.Repo`
-
-func scanDependencyRepo(s dbutil.Scanner) (shared.Repo, error) {
-	var v shared.Repo
-	err := s.Scan(&v.ID, &v.Scheme, &v.Name, &v.Version)
-	return v, err
-}
-
-//
-// Scans `[]shared.Repo`
-
-var scanDependencyRepos = basestore.NewSliceScanner(scanDependencyRepo)

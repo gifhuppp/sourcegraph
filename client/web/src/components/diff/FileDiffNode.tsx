@@ -1,36 +1,26 @@
 import React, { useState, useCallback } from 'react'
 
+import { mdiChevronDown, mdiChevronUp } from '@mdi/js'
 import classNames from 'classnames'
-import * as H from 'history'
-import ChevronDownIcon from 'mdi-react/ChevronDownIcon'
-import ChevronRightIcon from 'mdi-react/ChevronRightIcon'
 import prettyBytes from 'pretty-bytes'
-import { Observable } from 'rxjs'
+import { useLocation } from 'react-router-dom'
 
-import { ViewerId } from '@sourcegraph/shared/src/api/viewerTypes'
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
-import { Button, Badge, Link, Icon, Text } from '@sourcegraph/wildcard'
+import { dirname } from '@sourcegraph/common'
+import { Button, Badge, Link, Icon, Text, createLinkUrl, Tooltip } from '@sourcegraph/wildcard'
 
-import { FileDiffFields } from '../../graphql-operations'
-import { DiffMode } from '../../repo/commit/RepositoryCommitPage'
-import { dirname } from '../../util/path'
+import type { FileDiffFields } from '../../graphql-operations'
+import type { DiffMode } from '../../repo/commit/RepositoryCommitPage'
+import { isPerforceChangelistMappingEnabled } from '../../repo/utils'
 
 import { DiffStat, DiffStatSquares } from './DiffStat'
-import { ExtensionInfo } from './FileDiffConnection'
 import { FileDiffHunks } from './FileDiffHunks'
 
 import styles from './FileDiffNode.module.scss'
 
-export interface FileDiffNodeProps extends ThemeProps {
+export interface FileDiffNodeProps {
     node: FileDiffFields
     lineNumbers: boolean
     className?: string
-    location: H.Location
-    history: H.History
-
-    extensionInfo?: ExtensionInfo<{
-        observeViewerId?: (uri: string) => Observable<ViewerId | undefined>
-    }>
 
     /** Reflect selected line in url */
     persistLines?: boolean
@@ -39,16 +29,13 @@ export interface FileDiffNodeProps extends ThemeProps {
 
 /** A file diff. */
 export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileDiffNodeProps>> = ({
-    history,
-    isLightTheme,
     lineNumbers,
-    location,
     node,
     className,
-    extensionInfo,
     persistLines,
     diffMode = 'unified',
 }) => {
+    const location = useLocation()
     const [expanded, setExpanded] = useState<boolean>(true)
     const [renderDeleted, setRenderDeleted] = useState<boolean>(false)
 
@@ -60,7 +47,7 @@ export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileD
         setRenderDeleted(true)
     }, [])
 
-    let path: React.ReactFragment
+    let path: React.ReactNode
     if (node.newPath && (node.newPath === node.oldPath || !node.oldPath)) {
         path = <span title={node.newPath}>{node.newPath}</span>
     } else if (node.newPath && node.oldPath && node.newPath !== node.oldPath) {
@@ -73,11 +60,10 @@ export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileD
         // By process of elimination (that TypeScript is unfortunately unable to infer, except
         // by reorganizing this code in a way that's much more complex to humans), node.oldPath
         // is non-null.
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
         path = <span title={node.oldPath!}>{node.oldPath}</span>
     }
 
-    let stat: React.ReactFragment
+    let stat: React.ReactNode
     // If one of the files was binary, display file size change instead of DiffStat.
     if (node.oldFile?.binary || node.newFile?.binary) {
         const sizeChange = (node.newFile?.byteSize ?? 0) - (node.oldFile?.byteSize ?? 0)
@@ -94,6 +80,13 @@ export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileD
 
     const anchor = `diff-${node.internalID}`
 
+    const gitBlobURL =
+        isPerforceChangelistMappingEnabled() &&
+        node.mostRelevantFile.__typename === 'GitBlob' &&
+        node.mostRelevantFile.changelistURL
+            ? node.mostRelevantFile.changelistURL
+            : node.mostRelevantFile.url
+
     return (
         <>
             {/* The empty <a> tag is to allow users to anchor links to the top of this file diff node */}
@@ -107,7 +100,7 @@ export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileD
                         onClick={toggleExpand}
                         size="sm"
                     >
-                        <Icon role="img" as={expanded ? ChevronDownIcon : ChevronRightIcon} aria-hidden={true} />
+                        <Icon svgPath={expanded ? mdiChevronUp : mdiChevronDown} aria-hidden={true} />
                     </Button>
                     <div className={classNames('align-items-baseline', styles.headerPathStat)}>
                         {!node.oldPath && (
@@ -127,24 +120,22 @@ export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileD
                         )}
                         {stat}
                         {node.mostRelevantFile.__typename === 'GitBlob' ? (
-                            <Link
-                                to={node.mostRelevantFile.url}
-                                data-tooltip="View file at revision"
-                                className="mr-0 ml-2 fw-bold"
-                            >
-                                <strong>{path}</strong>
-                            </Link>
+                            <Tooltip content="View file at revision">
+                                <Link to={gitBlobURL} className="mr-0 ml-2 fw-bold">
+                                    <strong>{path}</strong>
+                                </Link>
+                            </Tooltip>
                         ) : (
                             <span className="ml-2">{path}</span>
                         )}
-                        <Link
-                            to={{ ...location, hash: anchor }}
-                            className={classNames('ml-2', styles.headerPath)}
-                            data-tooltip="Pin diff"
-                            aria-label="Pin diff"
-                        >
-                            #
-                        </Link>
+                        <Tooltip content="Pin diff">
+                            <Link
+                                to={createLinkUrl({ ...location, hash: anchor })}
+                                className={classNames('ml-2', styles.headerPath)}
+                            >
+                                #
+                            </Link>
+                        </Tooltip>
                     </div>
                 </div>
                 {expanded &&
@@ -161,25 +152,7 @@ export const FileDiffNode: React.FunctionComponent<React.PropsWithChildren<FileD
                         <FileDiffHunks
                             className={styles.hunks}
                             fileDiffAnchor={anchor}
-                            history={history}
-                            isLightTheme={isLightTheme}
-                            location={location}
                             persistLines={persistLines}
-                            extensionInfo={
-                                extensionInfo && {
-                                    extensionsController: extensionInfo.extensionsController,
-                                    observeViewerId: extensionInfo.observeViewerId,
-                                    hoverifier: extensionInfo.hoverifier,
-                                    base: {
-                                        ...extensionInfo.base,
-                                        filePath: node.oldPath,
-                                    },
-                                    head: {
-                                        ...extensionInfo.head,
-                                        filePath: node.newPath,
-                                    },
-                                }
-                            }
                             hunks={node.hunks}
                             lineNumbers={lineNumbers}
                             diffMode={diffMode}

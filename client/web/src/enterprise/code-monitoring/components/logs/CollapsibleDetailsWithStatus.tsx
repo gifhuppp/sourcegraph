@@ -1,8 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react'
 
-import classNames from 'classnames'
-import ChevronDownIcon from 'mdi-react/ChevronDownIcon'
-import ChevronRightIcon from 'mdi-react/ChevronRightIcon'
+import { mdiChevronDown, mdiChevronUp } from '@mdi/js'
 
 import { Badge, Button, Icon } from '@sourcegraph/wildcard'
 
@@ -24,46 +22,57 @@ export const CollapsibleDetailsWithStatus: React.FunctionComponent<
 
     const statusBadge = useMemo(() => {
         switch (status) {
-            case EventStatus.ERROR:
+            case EventStatus.ERROR: {
                 return 'danger'
-            case EventStatus.PENDING:
+            }
+            case EventStatus.PENDING: {
                 return 'warning'
-            case EventStatus.SUCCESS:
+            }
+            case EventStatus.SUCCESS: {
                 return 'primary'
-            case 'skipped':
+            }
+            case 'skipped': {
                 return 'warning'
+            }
         }
     }, [status])
 
     const statusText = useMemo(() => {
         switch (status) {
-            case EventStatus.ERROR:
+            case EventStatus.ERROR: {
                 return 'Error'
-            case EventStatus.PENDING:
+            }
+            case EventStatus.PENDING: {
                 return 'Pending'
-            case EventStatus.SUCCESS:
+            }
+            case EventStatus.SUCCESS: {
                 return 'Success'
-            case 'skipped':
+            }
+            case 'skipped': {
                 return 'Skipped'
+            }
         }
     }, [status])
 
     return (
-        <div className={styles.wrapper}>
-            <Button onClick={toggleExpanded} className={classNames('btn-icon d-block', styles.expandButton)}>
-                <Icon
-                    role="img"
-                    aria-hidden={true}
-                    className="mr-2"
-                    as={expanded ? ChevronDownIcon : ChevronRightIcon}
-                />
+        <li className={styles.wrapper}>
+            <Button onClick={toggleExpanded} className={styles.expandButton}>
+                {expanded ? (
+                    <Icon svgPath={mdiChevronUp} className="mr-2" aria-label="Collapse details." />
+                ) : (
+                    <Icon svgPath={mdiChevronDown} className="mr-2" aria-label="Expand details." />
+                )}
                 <span>{title}</span>
-                <Badge variant={statusBadge} className="ml-2 text-uppercase">
+                <Badge
+                    variant={statusBadge}
+                    className="ml-2 text-uppercase"
+                    aria-label={`, Monitor state: ${statusText}`}
+                >
                     {statusText}
                 </Badge>
             </Button>
 
             {expanded && <pre className={styles.message}>{message}</pre>}
-        </div>
+        </li>
     )
 }

@@ -1,14 +1,19 @@
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 
 import { WebStory } from '../../../../components/WebStory'
 
 import { RunServerSideModal } from './RunServerSideModal'
 
-const { add } = storiesOf('web/batches/batch-spec/edit', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
 
-add('RunServerSideModal', () => (
+const config: Meta = {
+    title: 'web/batches/batch-spec/edit',
+    decorators: [decorator],
+}
+
+export default config
+
+export const RunServerSideModalStory: StoryFn = () => (
     <WebStory>
         {props => (
             <RunServerSideModal
@@ -19,4 +24,6 @@ add('RunServerSideModal', () => (
             />
         )}
     </WebStory>
-))
+)
+
+RunServerSideModalStory.storyName = 'RunServerSideModal'

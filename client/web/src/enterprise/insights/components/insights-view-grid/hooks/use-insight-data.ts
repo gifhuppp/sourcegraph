@@ -1,8 +1,8 @@
-import { RefObject, useEffect, useState } from 'react'
+import { type RefObject, useEffect, useState } from 'react'
 
-import { ObservableInput } from 'rxjs'
+import type { ObservableInput } from 'rxjs'
 
-import { LazyQueryState, useLazyParallelRequest } from '../../../hooks/use-parallel-requests/use-parallel-request'
+import { type LazyQueryState, useLazyParallelRequest } from '../../../hooks/use-parallel-requests/use-parallel-request'
 
 export interface UseInsightDataResult<T> {
     isVisible: boolean
@@ -29,7 +29,6 @@ export function useInsightData<D>(
 
     useEffect(() => {
         if (hasIntersected) {
-            // eslint-disable-next-line @typescript-eslint/unbound-method
             const { unsubscribe } = query(request)
 
             return unsubscribe
@@ -66,4 +65,46 @@ export function useInsightData<D>(
     }, [reference])
 
     return { state, isVisible, query }
+}
+
+export interface UseVisibilityResult<T> {
+    isVisible: boolean
+    wasEverVisible: boolean
+}
+
+/**
+ * This hook returns a value to indicate if the element {@link reference} prop
+ * is currently visible on the screen and if it ever was.
+ *
+ * @param reference - consumer's element to track visibility
+ */
+export function useVisibility<D>(reference: RefObject<HTMLElement>): UseVisibilityResult<D> {
+    const [isVisible, setVisibility] = useState<boolean>(false)
+    const [wasEverVisible, setWasEverVisible] = useState<boolean>(false)
+
+    useEffect(() => {
+        const element = reference.current
+
+        if (!element) {
+            return
+        }
+
+        function handleIntersection(entries: IntersectionObserverEntry[]): void {
+            const [entry] = entries
+
+            setVisibility(entry.isIntersecting)
+
+            if (entry.isIntersecting) {
+                setWasEverVisible(true)
+            }
+        }
+
+        const observer = new IntersectionObserver(handleIntersection)
+
+        observer.observe(element)
+
+        return () => observer.unobserve(element)
+    }, [reference])
+
+    return { isVisible, wasEverVisible }
 }

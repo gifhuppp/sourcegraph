@@ -1,8 +1,10 @@
-import { MockedResponse } from '@apollo/client/testing'
-import { fireEvent, render, RenderResult, act } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import type { MockedResponse } from '@apollo/client/testing'
+import { fireEvent, render, type RenderResult, act } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { getDocumentNode } from '@sourcegraph/http-client'
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { MockedTestProvider } from '@sourcegraph/shared/src/testing/apollo'
 
 import { UPDATE_USER } from './EditUserProfileForm'
@@ -15,6 +17,7 @@ const mockUser = {
     avatarURL: 'https://example.com/image.jpg',
     viewerCanChangeUsername: true,
     createdAt: new Date().toISOString(),
+    scimControlled: false,
 }
 
 const newUserValues = {
@@ -54,7 +57,7 @@ describe('UserSettingsProfilePage', () => {
         queries = render(
             <MockedTestProvider mocks={mocks}>
                 <MemoryRouter>
-                    <UserSettingsProfilePage user={mockUser} />
+                    <UserSettingsProfilePage user={mockUser} telemetryRecorder={noOpTelemetryRecorder} />
                 </MemoryRouter>
             </MockedTestProvider>
         )

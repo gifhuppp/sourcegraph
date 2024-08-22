@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { lowerCase, upperFirst } from 'lodash'
-import { useHistory } from 'react-router'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-import { Form } from '@sourcegraph/branded/src/components/Form'
-import { Input, Select } from '@sourcegraph/wildcard'
+import { Input, Select, Form } from '@sourcegraph/wildcard'
 
 import { BatchSpecWorkspaceState } from '../../../../../graphql-operations'
 import { isValidBatchSpecWorkspaceState } from '../util'
+
+/** We exclude pending as a filter option, because it's not a valid state on the execution page. */
+const STATES_WITHOUT_PENDING = Object.values(BatchSpecWorkspaceState).filter(
+    value => value !== BatchSpecWorkspaceState.PENDING
+)
 
 export interface WorkspaceFilters {
     state: BatchSpecWorkspaceState | null
@@ -21,19 +25,21 @@ interface WorkspaceFilterRowProps {
 export const WorkspaceFilterRow: React.FunctionComponent<React.PropsWithChildren<WorkspaceFilterRowProps>> = ({
     onFiltersChange,
 }) => {
-    const history = useHistory()
+    const navigate = useNavigate()
+    const location = useLocation()
+
     const searchElement = useRef<HTMLInputElement | null>(null)
     const [state, setState] = useState<BatchSpecWorkspaceState | undefined>(() => {
-        const searchParameters = new URLSearchParams(history.location.search)
+        const searchParameters = new URLSearchParams(location.search)
         const value = searchParameters.get('state')
         return value && isValidBatchSpecWorkspaceState(value) ? value : undefined
     })
     const [search, setSearch] = useState<string | undefined>(() => {
-        const searchParameters = new URLSearchParams(history.location.search)
+        const searchParameters = new URLSearchParams(location.search)
         return searchParameters.get('search') ?? undefined
     })
     useEffect(() => {
-        const searchParameters = new URLSearchParams(history.location.search)
+        const searchParameters = new URLSearchParams(location.search)
         if (state) {
             searchParameters.set('state', state)
         } else {
@@ -44,9 +50,10 @@ export const WorkspaceFilterRow: React.FunctionComponent<React.PropsWithChildren
         } else {
             searchParameters.delete('search')
         }
-        if (history.location.search !== searchParameters.toString()) {
-            history.replace({ ...history.location, search: searchParameters.toString() })
+        if (location.search !== searchParameters.toString()) {
+            navigate({ search: searchParameters.toString() }, { replace: true })
         }
+
         // Update the filters in the parent component.
         onFiltersChange({
             state: state || null,
@@ -70,10 +77,11 @@ export const WorkspaceFilterRow: React.FunctionComponent<React.PropsWithChildren
                     ref={searchElement}
                     defaultValue={search}
                     placeholder="Search repository name"
+                    aria-label="Search repository name"
                 />
             </Form>
             <WorkspaceFilter<BatchSpecWorkspaceState>
-                values={Object.values(BatchSpecWorkspaceState)}
+                values={STATES_WITHOUT_PENDING}
                 label="State"
                 selected={state}
                 onChange={setState}
@@ -108,6 +116,7 @@ export const WorkspaceFilter = <T extends string>({
     return (
         <Select
             id="workspace-state"
+            isCustomStyle={true}
             className={className}
             value={selected}
             onChange={innerOnChange}

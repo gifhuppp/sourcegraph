@@ -1,23 +1,29 @@
 import { useState } from 'react'
 
-import { select } from '@storybook/addon-knobs'
-import { storiesOf } from '@storybook/react'
+import type { Decorator, StoryFn, Meta } from '@storybook/react'
 
 import { WebStory } from '../../../components/WebStory'
 
-import { TabBar, TabsConfig, TabKey } from './TabBar'
+import { TabBar, type TabsConfig, type TabKey } from './TabBar'
 
-const { add } = storiesOf('web/batches/batch-spec/TabBar', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+const config: Meta = {
+    title: 'web/batches/batch-spec/TabBar',
+    decorators: [decorator],
+}
+
+export default config
 
 const CREATE_TABS: TabsConfig[] = [{ key: 'configuration', isEnabled: true }]
 
-add('creating a new batch change', () => (
+export const CreateNewBatchChange: StoryFn = () => (
     <WebStory>{props => <TabBar {...props} activeTabKey="configuration" tabsConfig={CREATE_TABS} />}</WebStory>
-))
+)
 
-add('editing unexecuted batch spec', () => {
+CreateNewBatchChange.storyName = 'creating a new batch change'
+
+export const EditUnexecutedBatchSpec: StoryFn = () => {
     const [activeTabKey, setActiveTabKey] = useState<TabKey>('spec')
 
     const tabsConfig: TabsConfig[] = [
@@ -40,7 +46,9 @@ add('editing unexecuted batch spec', () => {
     ]
 
     return <WebStory>{props => <TabBar {...props} tabsConfig={tabsConfig} activeTabKey={activeTabKey} />}</WebStory>
-})
+}
+
+EditUnexecutedBatchSpec.storyName = 'editing unexecuted batch spec'
 
 const EXECUTING_TABS: TabsConfig[] = [
     { key: 'configuration', isEnabled: true, handler: { type: 'link' } },
@@ -48,17 +56,19 @@ const EXECUTING_TABS: TabsConfig[] = [
     { key: 'execution', isEnabled: true, handler: { type: 'link' } },
 ]
 
-add('executing a batch spec', () => (
-    <WebStory>
-        {props => (
-            <TabBar
-                {...props}
-                tabsConfig={EXECUTING_TABS}
-                activeTabKey={select('Active tab', ['configuration', 'spec', 'execution'], 'execution')}
-            />
-        )}
-    </WebStory>
-))
+export const ExecuteBatchSpec: StoryFn = args => (
+    <WebStory>{props => <TabBar {...props} tabsConfig={EXECUTING_TABS} activeTabKey={args.activeTabKey} />}</WebStory>
+)
+ExecuteBatchSpec.argTypes = {
+    activeTabKey: {
+        control: { type: 'select', options: ['configuration', 'spec', 'execution'] },
+    },
+}
+ExecuteBatchSpec.args = {
+    activeTabKey: 'execution',
+}
+
+ExecuteBatchSpec.storyName = 'executing a batch spec'
 
 const PREVIEWING_TABS: TabsConfig[] = [
     { key: 'configuration', isEnabled: true, handler: { type: 'link' } },
@@ -67,14 +77,37 @@ const PREVIEWING_TABS: TabsConfig[] = [
     { key: 'preview', isEnabled: true, handler: { type: 'link' } },
 ]
 
-add('previewing an execution result', () => (
-    <WebStory>
-        {props => (
-            <TabBar
-                {...props}
-                tabsConfig={PREVIEWING_TABS}
-                activeTabKey={select('Active tab', ['configuration', 'spec', 'execution', 'preview'], 'preview')}
-            />
-        )}
-    </WebStory>
-))
+export const PreviewExecutionResult: StoryFn = args => (
+    <WebStory>{props => <TabBar {...props} tabsConfig={PREVIEWING_TABS} activeTabKey={args.activeTabKey} />}</WebStory>
+)
+PreviewExecutionResult.argTypes = {
+    activeTabKey: {
+        control: { type: 'select', options: ['configuration', 'spec', 'execution', 'preview'] },
+    },
+}
+PreviewExecutionResult.args = {
+    activeTabKey: 'preview',
+}
+
+PreviewExecutionResult.storyName = 'previewing an execution result'
+
+const LOCAL_TABS: TabsConfig[] = [
+    { key: 'configuration', isEnabled: true, handler: { type: 'link' } },
+    { key: 'spec', isEnabled: true, handler: { type: 'link' } },
+    { key: 'execution', isEnabled: false },
+    { key: 'preview', isEnabled: true, handler: { type: 'link' } },
+]
+
+export const LocallyExecutedSpec: StoryFn = args => (
+    <WebStory>{props => <TabBar {...props} tabsConfig={LOCAL_TABS} activeTabKey={args.activeTabKey} />}</WebStory>
+)
+LocallyExecutedSpec.argTypes = {
+    activeTabKey: {
+        control: { type: 'select', options: ['configuration', 'spec', 'preview'] },
+    },
+}
+LocallyExecutedSpec.args = {
+    activeTabKey: 'preview',
+}
+
+LocallyExecutedSpec.storyName = 'for a locally-executed spec'

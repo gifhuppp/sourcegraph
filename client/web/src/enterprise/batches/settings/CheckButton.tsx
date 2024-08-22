@@ -1,9 +1,8 @@
 import React from 'react'
 
-import CheckIcon from 'mdi-react/CheckIcon'
-import CloseIcon from 'mdi-react/CloseIcon'
+import { mdiCheck, mdiClose } from '@mdi/js'
 
-import { Button, LoadingSpinner } from '@sourcegraph/wildcard'
+import { Button, LoadingSpinner, Icon, Alert } from '@sourcegraph/wildcard'
 
 export interface CheckButtonProps {
     label: string
@@ -22,7 +21,13 @@ export const CheckButton: React.FunctionComponent<React.PropsWithChildren<CheckB
 }) => {
     if (!loading && !successMessage && !failedMessage) {
         return (
-            <Button className="text-primary text-nowrap" onClick={onClick} variant="link" aria-label={label}>
+            <Button
+                className="text-primary text-nowrap font-weight-normal"
+                onClick={onClick}
+                variant="link"
+                size="sm"
+                aria-label={label}
+            >
                 Check
             </Button>
         )
@@ -36,16 +41,16 @@ export const CheckButton: React.FunctionComponent<React.PropsWithChildren<CheckB
     }
     if (successMessage && !failedMessage) {
         return (
-            <div className="text-success">
-                <CheckIcon /> {successMessage}
-            </div>
+            <Alert className="text-success m-0 small">
+                <Icon svgPath={mdiCheck} inline={false} aria-hidden={true} /> {successMessage}
+            </Alert>
         )
     }
     if (failedMessage) {
         return (
-            <div className="text-danger">
-                <CloseIcon /> {failedMessage}
-            </div>
+            <Alert className="text-danger m-0 small">
+                <Icon svgPath={mdiClose} inline={false} aria-hidden={true} /> {failedMessage}
+            </Alert>
         )
     }
     throw new Error('unreachable check button state')

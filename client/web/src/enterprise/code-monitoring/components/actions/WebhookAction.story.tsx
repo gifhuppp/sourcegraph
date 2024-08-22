@@ -1,17 +1,20 @@
-import { storiesOf } from '@storybook/react'
+import type { Meta, StoryFn } from '@storybook/react'
 import sinon from 'sinon'
 
 import { H2 } from '@sourcegraph/wildcard'
 
 import { WebStory } from '../../../../components/WebStory'
 import { mockAuthenticatedUser } from '../../testing/util'
-import { ActionProps } from '../FormActionArea'
+import type { ActionProps } from '../FormActionArea'
 
 import { WebhookAction } from './WebhookAction'
 
-const { add } = storiesOf('web/enterprise/code-monitoring/actions/WebhookAction', module).addParameters({
-    chromatic: { disableSnapshot: false },
-})
+const config: Meta = {
+    title: 'web/enterprise/code-monitoring/actions/WebhookAction',
+    parameters: {},
+}
+
+export default config
 
 const defaultProps: ActionProps = {
     action: undefined,
@@ -29,7 +32,7 @@ const action: ActionProps['action'] = {
     includeResults: false,
 }
 
-add('WebhookAction', () => (
+export const WebhookActionStory: StoryFn = () => (
     <WebStory>
         {() => (
             <>
@@ -59,4 +62,6 @@ add('WebhookAction', () => (
             </>
         )}
     </WebStory>
-))
+)
+
+WebhookActionStory.storyName = 'WebhookAction'

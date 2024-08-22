@@ -1,10 +1,10 @@
 import React from 'react'
 
+import { mdiSourceFork, mdiAccountQuestion } from '@mdi/js'
+import { VisuallyHidden } from '@reach/visually-hidden'
 import classNames from 'classnames'
-import AccountQuestionIcon from 'mdi-react/AccountQuestionIcon'
-import SourceForkIcon from 'mdi-react/SourceForkIcon'
 
-import { Badge, Icon, BadgeProps } from '@sourcegraph/wildcard'
+import { Badge, Icon, type BadgeProps, Tooltip } from '@sourcegraph/wildcard'
 
 export interface ForkTarget {
     pushUser: boolean
@@ -28,13 +28,15 @@ export const Branch: React.FunctionComponent<React.PropsWithChildren<BranchProps
     <Badge
         variant={variant !== undefined ? variant : deleted ? 'danger' : 'secondary'}
         className={classNames('text-monospace', className)}
-        as={deleted ? 'del' : undefined}
+        as={deleted ? 'del' : 'span'}
+        aria-label={deleted ? 'Deleted' : ''}
+        pill={true}
     >
         {!forkTarget || forkTarget.namespace === null ? (
             name
         ) : (
             <>
-                <Icon role="img" aria-hidden={true} className="mr-1" as={SourceForkIcon} />
+                <Icon aria-label="fork" className="mr-1" svgPath={mdiSourceFork} />
                 <BranchNamespace target={forkTarget} />
                 {name}
             </>
@@ -53,9 +55,14 @@ export const BranchMerge: React.FunctionComponent<React.PropsWithChildren<Branch
     forkTarget,
     headRef,
 }) => (
-    <div className="d-block d-sm-inline-block">
+    // Relative positioning needed to avoid VisuallyHidden creating a double layer scrollbar in Chrome.
+    // Related bug: https://bugs.chromium.org/p/chromium/issues/detail?id=1154640#c15
+    <div className="d-block d-sm-inline-block position-relative">
+        <VisuallyHidden>Request to merge commit into</VisuallyHidden>
         <Branch name={baseRef} />
-        <span className="p-1">&larr;</span>
+        <Icon as="span" inline={false} className="p-1" aria-label="from">
+            &larr;
+        </Icon>
         <Branch name={headRef} forkTarget={forkTarget} />
     </div>
 )
@@ -74,7 +81,10 @@ const BranchNamespace: React.FunctionComponent<React.PropsWithChildren<BranchNam
             'This branch will be pushed to a user fork. If you have configured a credential for yourself in the Batch Changes settings, this will be a fork in your code host account; otherwise the fork will be in the code host account associated with the site credential used to open changesets.'
         return (
             <>
-                <Icon role="img" aria-label={iconLabel} data-tooltip={iconLabel} as={AccountQuestionIcon} />:
+                <Tooltip content={iconLabel}>
+                    <Icon aria-label={iconLabel} svgPath={mdiAccountQuestion} />
+                </Tooltip>
+                :
             </>
         )
     }

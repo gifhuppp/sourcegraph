@@ -1,55 +1,59 @@
 import { render } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 
-import { FeatureFlagName } from './featureFlags'
-import { MockedFeatureFlagsProvider } from './FeatureFlagsProvider'
+import { MockedTestProvider } from '@sourcegraph/shared/src/testing/apollo'
+
+import { createFlagMock } from './createFlagMock'
+import type { FeatureFlagName } from './featureFlags'
 import { withFeatureFlag } from './withFeatureFlag'
 
 describe('withFeatureFlag', () => {
-    const TrueComponent = () => <div data-testid="true-component">rendered when flag is true</div>
-    const FalseComponent = () => <div data-testid="false-component">rendered when flag is false</div>
-    const Wrapper = withFeatureFlag('test-flag' as FeatureFlagName, TrueComponent, FalseComponent)
+    const trueComponentTestId = 'true-component'
+    const falseComponentTestId = 'false-component'
+    const TrueComponent = () => <div data-testid={trueComponentTestId}>rendered when flag is true</div>
+    const FalseComponent = () => <div data-testid={falseComponentTestId}>rendered when flag is false</div>
+    const TEST_FLAG = 'test-flag' as FeatureFlagName
+    const Wrapper = withFeatureFlag(TEST_FLAG, TrueComponent, FalseComponent)
 
-    it('renders correctly when flagValue=true', () => {
-        const { getByTestId } = render(
-            <MockedFeatureFlagsProvider overrides={new Map([['test-flag' as FeatureFlagName, true]])}>
+    it('renders correctly when flagValue=true', async () => {
+        const { findByTestId } = render(
+            <MockedTestProvider mocks={[createFlagMock(TEST_FLAG, true)]}>
                 <Wrapper />
-            </MockedFeatureFlagsProvider>
+            </MockedTestProvider>
         )
 
-        expect(getByTestId('true-component')).toBeTruthy()
+        expect(await findByTestId(trueComponentTestId)).toBeInTheDocument()
     })
 
-    it('renders correctly when flagValue=false', () => {
-        const { getByTestId } = render(
-            <MockedFeatureFlagsProvider overrides={new Map([['test-flag' as FeatureFlagName, false]])}>
+    it('renders correctly when flagValue=false', async () => {
+        const { findByTestId } = render(
+            <MockedTestProvider mocks={[createFlagMock(TEST_FLAG, false)]}>
                 <Wrapper />
-            </MockedFeatureFlagsProvider>
+            </MockedTestProvider>
         )
 
-        expect(getByTestId('false-component')).toBeTruthy()
+        expect(await findByTestId(falseComponentTestId)).toBeInTheDocument()
     })
 
     it('waits until flag value is resolved', () => {
         const { queryByTestId } = render(
-            <MockedFeatureFlagsProvider
-                overrides={new Map([['test-flag' as FeatureFlagName, new Error('Failed to fetch')]])}
-            >
+            <MockedTestProvider mocks={[createFlagMock(TEST_FLAG, new Error('Failed to fetch'))]}>
                 <Wrapper />
-            </MockedFeatureFlagsProvider>
+            </MockedTestProvider>
         )
 
-        expect(queryByTestId('false-component')).toBeFalsy()
-        expect(queryByTestId('true-component')).toBeFalsy()
+        expect(queryByTestId(falseComponentTestId)).not.toBeInTheDocument()
+        expect(queryByTestId(trueComponentTestId)).not.toBeInTheDocument()
     })
 
     it('renders correctly when flagValue=false and FalseComponent omitted', () => {
         const LocalWrapper = withFeatureFlag('test-flag' as FeatureFlagName, TrueComponent)
-        const { container } = render(
-            <MockedFeatureFlagsProvider overrides={new Map([['test-flag' as FeatureFlagName, false]])}>
+        const { findByTestId } = render(
+            <MockedTestProvider mocks={[createFlagMock(TEST_FLAG, false)]}>
                 <LocalWrapper />
-            </MockedFeatureFlagsProvider>
+            </MockedTestProvider>
         )
 
-        expect(container.innerHTML).toBeFalsy()
+        expect(() => findByTestId(trueComponentTestId)).rejects.toBeTruthy()
     })
 })

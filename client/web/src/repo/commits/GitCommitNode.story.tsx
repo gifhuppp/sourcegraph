@@ -1,22 +1,31 @@
-import { boolean } from '@storybook/addon-knobs'
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 import { subDays } from 'date-fns'
 
+import { noOpTelemetryRecorder } from '@sourcegraph/shared/src/telemetry'
 import { Card } from '@sourcegraph/wildcard'
 
 import { WebStory } from '../../components/WebStory'
-import { GitCommitFields } from '../../graphql-operations'
+import type { GitCommitFields } from '../../graphql-operations'
 
 import { GitCommitNode } from './GitCommitNode'
 
-const { add } = storiesOf('web/GitCommitNode', module)
-    .addDecorator(story => <div className="p-3 container">{story()}</div>)
-    .addParameters({ disableSnapshot: false })
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+window.context.experimentalFeatures = { perforceChangelistMapping: 'enabled' }
+
+const config: Meta = {
+    title: 'web/GitCommitNode',
+    parameters: {},
+    decorators: [decorator],
+}
+
+export default config
 
 const gitCommitNode: GitCommitFields = {
     id: 'commit123',
     abbreviatedOID: 'abcdefg',
     oid: 'abcdefghijklmnopqrstuvwxyz12345678904321',
+    perforceChangelist: null,
     author: {
         date: subDays(new Date(), 5).toISOString(),
         person: {
@@ -47,12 +56,12 @@ const gitCommitNode: GitCommitFields = {
             },
         },
     },
-    body:
-        'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.',
+    body: 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.',
     parents: [
         {
             abbreviatedOID: '987654',
             oid: '98765432101234abcdefghijklmnopqrstuvwxyz',
+            perforceChangelist: null,
             url: '/commits/987654',
         },
     ],
@@ -65,23 +74,51 @@ const gitCommitNode: GitCommitFields = {
         'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore.',
 }
 
-add('Full customizable', () => (
+export const FullCustomizable: StoryFn = args => (
     <WebStory>
         {() => (
             <Card>
                 <GitCommitNode
                     node={gitCommitNode}
-                    compact={boolean('compact', false)}
-                    expandCommitMessageBody={boolean('expandCommitMessageBody', false)}
-                    showSHAAndParentsRow={boolean('showSHAAndParentsRow', false)}
-                    hideExpandCommitMessageBody={boolean('hideExpandCommitMessageBody', false)}
-                    preferAbsoluteTimestamps={boolean('preferAbsoluteTimestamps', false)}
+                    compact={args.compact}
+                    expandCommitMessageBody={args.expandCommitMessageBody}
+                    showSHAAndParentsRow={args.showSHAAndParentsRow}
+                    hideExpandCommitMessageBody={args.hideExpandCommitMessageBody}
+                    preferAbsoluteTimestamps={args.preferAbsoluteTimestamps}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             </Card>
         )}
     </WebStory>
-))
-add('Compact', () => (
+)
+FullCustomizable.argTypes = {
+    compact: {
+        control: { type: 'boolean' },
+    },
+    expandCommitMessageBody: {
+        control: { type: 'boolean' },
+    },
+    showSHAAndParentsRow: {
+        control: { type: 'boolean' },
+    },
+    hideExpandCommitMessageBody: {
+        control: { type: 'boolean' },
+    },
+    preferAbsoluteTimestamps: {
+        control: { type: 'boolean' },
+    },
+}
+FullCustomizable.args = {
+    compact: false,
+    expandCommitMessageBody: false,
+    showSHAAndParentsRow: false,
+    hideExpandCommitMessageBody: false,
+    preferAbsoluteTimestamps: false,
+}
+
+FullCustomizable.storyName = 'Full customizable'
+
+export const Compact: StoryFn = () => (
     <WebStory>
         {() => (
             <Card>
@@ -91,12 +128,14 @@ add('Compact', () => (
                     expandCommitMessageBody={false}
                     showSHAAndParentsRow={false}
                     hideExpandCommitMessageBody={false}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             </Card>
         )}
     </WebStory>
-))
-add('Commit message expanded', () => (
+)
+
+export const CommitMessageExpand: StoryFn = () => (
     <WebStory>
         {() => (
             <Card>
@@ -106,12 +145,16 @@ add('Commit message expanded', () => (
                     expandCommitMessageBody={true}
                     showSHAAndParentsRow={false}
                     hideExpandCommitMessageBody={false}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             </Card>
         )}
     </WebStory>
-))
-add('SHA and parent shown', () => (
+)
+
+CommitMessageExpand.storyName = 'Commit message expanded'
+
+export const SHAAndParentShown: StoryFn = () => (
     <WebStory>
         {() => (
             <Card>
@@ -121,12 +164,16 @@ add('SHA and parent shown', () => (
                     expandCommitMessageBody={false}
                     showSHAAndParentsRow={true}
                     hideExpandCommitMessageBody={false}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             </Card>
         )}
     </WebStory>
-))
-add('Expand commit message btn hidden', () => (
+)
+
+SHAAndParentShown.storyName = 'SHA and parent shown'
+
+export const ExpandCommitMessageButtonHidden: StoryFn = () => (
     <WebStory>
         {() => (
             <Card>
@@ -136,8 +183,91 @@ add('Expand commit message btn hidden', () => (
                     expandCommitMessageBody={false}
                     showSHAAndParentsRow={false}
                     hideExpandCommitMessageBody={true}
+                    telemetryRecorder={noOpTelemetryRecorder}
                 />
             </Card>
         )}
     </WebStory>
-))
+)
+
+ExpandCommitMessageButtonHidden.storyName = 'Expand commit message btn hidden'
+
+const perforceChangelistNode: GitCommitFields = {
+    id: 'commit123',
+    abbreviatedOID: 'abcdefg',
+    oid: 'abcdefghijklmnopqrstuvwxyz12345678904321',
+    perforceChangelist: {
+        __typename: 'PerforceChangelist',
+        cid: '12345',
+        canonicalURL: '/go/-/changelist/12345',
+    },
+    author: {
+        date: subDays(new Date(), 5).toISOString(),
+        person: {
+            avatarURL: 'http://test.test/useravatar',
+            displayName: 'alice',
+            email: 'alice@sourcegraph.com',
+            name: 'Alice',
+            user: {
+                id: 'alice123',
+                url: '/users/alice',
+                displayName: 'Alice',
+                username: 'alice',
+            },
+        },
+    },
+    committer: {
+        date: subDays(new Date(), 5).toISOString(),
+        person: {
+            avatarURL: 'http://test.test/useravatar',
+            displayName: 'alice',
+            email: 'alice@sourcegraph.com',
+            name: 'Alice',
+            user: {
+                id: 'alice123',
+                url: '/users/alice',
+                displayName: 'Alice',
+                username: 'alice',
+            },
+        },
+    },
+    body: 'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua.',
+    parents: [
+        {
+            abbreviatedOID: '987654',
+            oid: '98765432101234abcdefghijklmnopqrstuvwxyz',
+            perforceChangelist: {
+                __typename: 'PerforceChangelist',
+                cid: '12344',
+                canonicalURL: '/go/-/changelist/12344',
+            },
+            url: '/commits/987654',
+        },
+    ],
+    subject: 'Super awesome commit',
+    url: '/commits/abcdefg',
+    tree: null,
+    canonicalURL: 'asd',
+    externalURLs: [],
+    message:
+        'Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore.',
+}
+
+export const PerforceChangelist: StoryFn = () => (
+    <WebStory>
+        {() => (
+            <Card>
+                <GitCommitNode
+                    node={perforceChangelistNode}
+                    compact={false}
+                    expandCommitMessageBody={false}
+                    showSHAAndParentsRow={false}
+                    hideExpandCommitMessageBody={true}
+                    telemetryRecorder={noOpTelemetryRecorder}
+                />
+            </Card>
+        )}
+    </WebStory>
+)
+
+PerforceChangelist.storyName = 'Perforce changelist'

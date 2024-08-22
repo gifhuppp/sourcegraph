@@ -1,11 +1,11 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
-import { ObservableStatus, useObservableWithStatus } from '@sourcegraph/wildcard'
+import { type ObservableStatus, useObservableWithStatus } from '@sourcegraph/wildcard'
 
-import { TemporarySettings } from './TemporarySettings'
+import type { TemporarySettings } from './TemporarySettings'
 import { TemporarySettingsContext } from './TemporarySettingsProvider'
 
-type UseTemporarySettingsReturnType<K extends keyof TemporarySettings> = [
+export type UseTemporarySettingsReturnType<K extends keyof TemporarySettings> = [
     TemporarySettings[K],
     (newValue: TemporarySettings[K] | ((previousValue: TemporarySettings[K]) => TemporarySettings[K])) => void,
     TemporarySettingsLoadStatus
@@ -15,12 +15,15 @@ type TemporarySettingsLoadStatus = 'initial' | 'loaded' | 'error'
 
 const mapObservableStatusToStatus = (observableStatus: ObservableStatus): TemporarySettingsLoadStatus => {
     switch (observableStatus) {
-        case 'initial':
+        case 'initial': {
             return 'initial'
-        case 'error':
+        }
+        case 'error': {
             return 'error'
-        default:
+        }
+        default: {
             return 'loaded'
+        }
     }
 }
 

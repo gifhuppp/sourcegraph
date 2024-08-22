@@ -1,17 +1,17 @@
 import { useState } from 'react'
 
-import { MockedResponse } from '@apollo/client/testing/core/mocking/mockLink'
-import { Meta, Story } from '@storybook/react'
+import type { MockedResponse } from '@apollo/client/testing/core/mocking/mockLink'
+import type { Meta, StoryFn } from '@storybook/react'
 
 import { MockedTestProvider } from '@sourcegraph/shared/src/testing/apollo'
 
 import { WebStory } from '../../../../../../../../../components/WebStory'
 import {
-    GetSearchContextsResult,
+    type GetSearchContextsResult,
     SeriesSortDirection,
     SeriesSortMode,
 } from '../../../../../../../../../graphql-operations'
-import { InsightFilters } from '../../../../../../../core'
+import type { InsightFilters } from '../../../../../../../core'
 import { SEARCH_CONTEXT_GQL } from '../search-context/DrillDownSearchContextFilter'
 
 import { DrillDownInsightFilters, FilterSectionVisualMode } from './DrillDownInsightFilters'
@@ -86,39 +86,45 @@ const ORIGINAL_FILTERS: InsightFilters = {
     includeRepoRegexp: '',
     excludeRepoRegexp: '',
     context: '',
+    seriesDisplayOptions: {
+        limit: 20,
+        numSamples: null,
+        sortOptions: {
+            direction: SeriesSortDirection.DESC,
+            mode: SeriesSortMode.RESULT_COUNT,
+        },
+    },
 }
 
 const FILTERS: InsightFilters = {
     includeRepoRegexp: 'hello world loooong loooooooooooooong repo filter regular expressssssion',
     excludeRepoRegexp: 'hello world loooong loooooooooooooong repo filter regular expressssssion',
     context: '',
-}
-
-const ORIGINAL_SERIES_DISPLAY_OPTIONS = {
-    limit: 20,
-    sortOptions: {
-        direction: SeriesSortDirection.DESC,
-        mode: SeriesSortMode.RESULT_COUNT,
+    seriesDisplayOptions: {
+        limit: 20,
+        numSamples: null,
+        sortOptions: {
+            direction: SeriesSortDirection.DESC,
+            mode: SeriesSortMode.RESULT_COUNT,
+        },
     },
 }
 
-export const DrillDownFiltersShowcase: Story = () => (
+export const DrillDownFiltersShowcase: StoryFn = () => (
     <MockedTestProvider mocks={[CONTEXTS_GQL_MOCKS]}>
         <DrillDownInsightFilters
             initialValues={FILTERS}
             originalValues={ORIGINAL_FILTERS}
+            isNumSamplesFilterAvailable={true}
             visualMode={FilterSectionVisualMode.CollapseSections}
-            showSeriesDisplayOptions={true}
             onFiltersChange={console.log}
             onFilterSave={console.log}
             onCreateInsightRequest={console.log}
-            onSeriesDisplayOptionsChange={console.log}
-            originalSeriesDisplayOptions={ORIGINAL_SERIES_DISPLAY_OPTIONS}
         />
     </MockedTestProvider>
 )
 
-export const DrillDownFiltersHorizontalMode: Story = () => {
+export const DrillDownFiltersHorizontalMode: StoryFn = () => {
     const [mode, setMode] = useState<FilterSectionVisualMode>(FilterSectionVisualMode.HorizontalSections)
 
     return (
@@ -126,17 +132,12 @@ export const DrillDownFiltersHorizontalMode: Story = () => {
             <DrillDownInsightFilters
                 initialValues={FILTERS}
                 originalValues={ORIGINAL_FILTERS}
+                isNumSamplesFilterAvailable={true}
                 visualMode={mode}
                 onVisualModeChange={setMode}
                 onFiltersChange={console.log}
                 onFilterSave={console.log}
                 onCreateInsightRequest={console.log}
-                showSeriesDisplayOptions={false}
-                onSeriesDisplayOptionsChange={console.log}
-                originalSeriesDisplayOptions={{
-                    limit: 20,
-                    sortOptions: { direction: SeriesSortDirection.DESC, mode: SeriesSortMode.RESULT_COUNT },
-                }}
             />
         </MockedTestProvider>
     )

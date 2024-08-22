@@ -1,9 +1,7 @@
 import * as React from 'react'
 
+import { mdiAlertCircle } from '@mdi/js'
 import classNames from 'classnames'
-import AlertCircleIcon from 'mdi-react/AlertCircleIcon'
-import CheckIcon from 'mdi-react/CheckIcon'
-import CloseIcon from 'mdi-react/CloseIcon'
 
 import { Button, LoadingSpinner, Icon } from '@sourcegraph/wildcard'
 
@@ -13,6 +11,11 @@ export interface SaveToolbarProps {
     dirty?: boolean
     saving?: boolean
     error?: Error
+
+    /**
+     * Determine if consumer children is added before or after the toolbar actions.
+     */
+    childrenPosition?: 'start' | 'end'
 
     onSave: () => void
     onDiscard: () => void
@@ -34,7 +37,17 @@ export type SaveToolbarPropsGenerator<T extends object> = (
 
 export const SaveToolbar: React.FunctionComponent<
     React.PropsWithChildren<React.PropsWithChildren<SaveToolbarProps>>
-> = ({ dirty, saving, error, onSave, onDiscard, children, willShowError, saveDiscardDisabled }) => {
+> = ({
+    dirty,
+    saving,
+    error,
+    onSave,
+    onDiscard,
+    children,
+    childrenPosition = 'end',
+    willShowError,
+    saveDiscardDisabled,
+}) => {
     const disabled = saveDiscardDisabled ? saveDiscardDisabled() : saving || !dirty
     let saveDiscardTitle: string | undefined
     if (saving) {
@@ -51,32 +64,31 @@ export const SaveToolbar: React.FunctionComponent<
         <>
             {error && willShowError() && (
                 <div className={styles.error} role="alert">
-                    <Icon role="img" className={styles.errorIcon} as={AlertCircleIcon} aria-hidden={true} />
+                    <Icon className={styles.errorIcon} aria-hidden={true} svgPath={mdiAlertCircle} />
                     {error.message}
                 </div>
             )}
-            <div className={styles.actions}>
+            <div className={classNames('mt-2', styles.actions)}>
+                {childrenPosition === 'start' && children}
                 <Button
                     disabled={disabled}
                     title={saveDiscardTitle || 'Save changes'}
-                    className={classNames('test-save-toolbar-save', styles.item, styles.btn, styles.btnFirst)}
+                    className={classNames('test-save-toolbar-save mr-2', styles.item)}
                     onClick={onSave}
-                    variant="success"
-                    size="sm"
+                    variant="primary"
                 >
-                    <Icon role="img" style={{ marginRight: '0.1em' }} as={CheckIcon} aria-hidden={true} /> Save changes
+                    Save
                 </Button>
                 <Button
                     disabled={disabled}
                     title={saveDiscardTitle || 'Discard changes'}
-                    className={classNames('test-save-toolbar-discard', styles.item, styles.btn, styles.btnLast)}
+                    className={classNames('test-save-toolbar-discard', styles.item)}
                     onClick={onDiscard}
                     variant="secondary"
-                    size="sm"
                 >
-                    <Icon role="img" as={CloseIcon} aria-hidden={true} /> Discard
+                    Discard changes
                 </Button>
-                {children}
+                {childrenPosition === 'end' && children}
                 {saving && (
                     <span className={classNames(styles.item, styles.message)}>
                         <LoadingSpinner /> Saving...

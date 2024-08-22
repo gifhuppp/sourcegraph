@@ -1,15 +1,15 @@
-import { FunctionComponent, useCallback, useState } from 'react'
+import { type FunctionComponent, useCallback, useState } from 'react'
 
-import { Subject } from 'rxjs'
+import type { Subject } from 'rxjs'
 
-import { ErrorAlert } from '@sourcegraph/branded/src/components/alerts'
-import { Button, Alert, Input, Label } from '@sourcegraph/wildcard'
+import { Alert, Button, ErrorAlert, Input, Label, Link } from '@sourcegraph/wildcard'
 
-import { useEnqueueIndexJob } from '../hooks/useEnqueueIndexJob'
+import { useEnqueueIndexJob as defaultUseEnqueueIndexJob } from '../hooks/useEnqueueIndexJob'
 
 export interface EnqueueFormProps {
     repoId: string
     querySubject: Subject<string>
+    useEnqueueIndexJob?: typeof defaultUseEnqueueIndexJob
 }
 
 enum State {
@@ -18,7 +18,11 @@ enum State {
     Queued,
 }
 
-export const EnqueueForm: FunctionComponent<React.PropsWithChildren<EnqueueFormProps>> = ({ repoId, querySubject }) => {
+export const EnqueueForm: FunctionComponent<EnqueueFormProps> = ({
+    repoId,
+    querySubject,
+    useEnqueueIndexJob = defaultUseEnqueueIndexJob,
+}) => {
     const [revlike, setRevlike] = useState('HEAD')
     const [state, setState] = useState(() => State.Idle)
     const [queueResult, setQueueResult] = useState<number>()
@@ -37,8 +41,8 @@ export const EnqueueForm: FunctionComponent<React.PropsWithChildren<EnqueueFormP
 
             const queueResultLength = indexes?.queueAutoIndexJobsForRepo.length || 0
             setQueueResult(queueResultLength)
-            if (queueResultLength > 0) {
-                querySubject.next(indexes?.queueAutoIndexJobsForRepo[0].inputCommit)
+            if (queueResultLength > 0 && indexes?.queueAutoIndexJobsForRepo[0].inputCommit !== undefined) {
+                querySubject.next(indexes.queueAutoIndexJobsForRepo[0].inputCommit)
             }
         } catch (error) {
             setEnqueueError(error)
@@ -51,9 +55,19 @@ export const EnqueueForm: FunctionComponent<React.PropsWithChildren<EnqueueFormP
     return (
         <>
             {enqueueError && <ErrorAlert prefix="Error enqueueing index job" error={enqueueError} />}
-
+            <div className="mb-3">
+                Provide a{' '}
+                <Link
+                    to="https://git-scm.com/docs/git-rev-parse.html#_specifying_revisions"
+                    rel="noopener noreferrer"
+                    target="_blank"
+                >
+                    Git revspec
+                </Link>{' '}
+                to enqueue a new auto-indexing job.
+            </div>
             <div className="form-inline">
-                <Label htmlFor="revlike">Git revlike</Label>
+                <Label htmlFor="revlike">Git revspec</Label>
 
                 <Input
                     id="revlike"
@@ -74,11 +88,19 @@ export const EnqueueForm: FunctionComponent<React.PropsWithChildren<EnqueueFormP
                 </Button>
             </div>
 
-            {state === State.Queued && queueResult !== undefined && (
-                <Alert className="mt-3 mb-0" variant="success">
-                    {queueResult} index jobs enqueued.
-                </Alert>
-            )}
+            {state === State.Queued &&
+                queueResult !== undefined &&
+                (queueResult > 0 ? (
+                    <Alert className="mt-3 mb-0" variant="success">
+                        {queueResult} auto-indexing jobs enqueued.
+                    </Alert>
+                ) : (
+                    <Alert className="mt-3 mb-0" variant="info">
+                        Failed to enqueue any auto-indexing jobs.
+                        <br />
+                        Check if the auto-index configuration is up-to-date.
+                    </Alert>
+                ))}
         </>
     )
 }

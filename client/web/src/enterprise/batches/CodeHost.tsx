@@ -3,7 +3,7 @@ import React from 'react'
 import { Icon } from '@sourcegraph/wildcard'
 
 import { defaultExternalServices } from '../../components/externalServices/externalServices'
-import { ExternalServiceKind } from '../../graphql-operations'
+import type { ExternalServiceKind } from '../../graphql-operations'
 
 export interface Props {
     externalServiceURL: string
@@ -17,7 +17,7 @@ export const CodeHost: React.FunctionComponent<React.PropsWithChildren<Props>> =
     const ExternalServiceIcon = defaultExternalServices[externalServiceKind].icon
     return (
         <li>
-            <Icon role="img" aria-hidden={true} className="mr-2" as={ExternalServiceIcon} />
+            <Icon aria-hidden={true} className="mr-2" as={ExternalServiceIcon} />
             {externalServiceURL}
         </li>
     )

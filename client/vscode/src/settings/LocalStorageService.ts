@@ -1,6 +1,6 @@
 // VS Code Docs https://code.visualstudio.com/api/references/vscode-api#Memento
 // A memento represents a storage utility. It can store and retrieve values.
-import { Memento } from 'vscode'
+import type { Memento } from 'vscode'
 
 export class LocalStorageService {
     constructor(private storage: Memento) {}
@@ -22,5 +22,4 @@ export class LocalStorageService {
 export const SELECTED_SEARCH_CONTEXT_SPEC_KEY = 'selected-search-context-spec'
 export const INSTANCE_VERSION_NUMBER_KEY = 'sourcegraphVersionNumber'
 export const ANONYMOUS_USER_ID_KEY = 'sourcegraphAnonymousUid'
-export const DISMISS_SEARCH_CTA_KEY = 'sourcegraphSearchCtaDismissed'
 export const DISMISS_WORKSPACERECS_CTA_KEY = 'sourcegraphWorkspaceRecsCtaDismissed'

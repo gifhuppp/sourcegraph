@@ -1,24 +1,36 @@
-import { Meta, Story } from '@storybook/react'
+import { mdiFilterOutline, mdiDotsVertical } from '@mdi/js'
+import type { Meta, StoryFn } from '@storybook/react'
 import { noop } from 'lodash'
-import DotsVerticalIcon from 'mdi-react/DotsVerticalIcon'
-import FilterOutlineIcon from 'mdi-react/FilterOutlineIcon'
 
-import { ErrorAlert } from '@sourcegraph/branded/src/components/alerts'
-import { Button, Menu, MenuButton, MenuItem, MenuList, H2 } from '@sourcegraph/wildcard'
+import {
+    Button,
+    Menu,
+    MenuButton,
+    MenuItem,
+    MenuList,
+    H2,
+    Icon,
+    LegendItem,
+    LegendList,
+    ParentSize,
+    type Series,
+    ErrorAlert,
+} from '@sourcegraph/wildcard'
 
-import { getLineColor, LegendItem, LegendList, ParentSize, Series } from '../../../../../charts'
 import { WebStory } from '../../../../../components/WebStory'
-import { SeriesChart } from '../chart'
-import { SeriesBasedChartTypes } from '../types'
+import { useSeriesToggle } from '../../../../../insights/utils/use-series-toggle'
+import { SeriesBasedChartTypes, SeriesChart } from '../chart'
 
 import * as Card from './InsightCard'
 
-export default {
+const meta: Meta = {
     title: 'web/insights/shared-components',
     decorators: [story => <WebStory>{() => story()}</WebStory>],
-} as Meta
+}
 
-export const InsightCardShowcase: Story = () => (
+export default meta
+
+export const InsightCardShowcase: StoryFn = () => (
     <main style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
         <section>
             <H2>Empty view</H2>
@@ -64,11 +76,23 @@ export const InsightCardShowcase: Story = () => (
                     subtitle="Subtitle chart description"
                 >
                     <Button variant="icon" className="p-1">
-                        <FilterOutlineIcon size="1rem" />
+                        <Icon
+                            svgPath={mdiFilterOutline}
+                            inline={false}
+                            aria-label="Filters"
+                            height="1rem"
+                            width="1rem"
+                        />
                     </Button>
                     <Menu>
                         <MenuButton variant="icon" className="p-1">
-                            <DotsVerticalIcon size={16} />
+                            <Icon
+                                svgPath={mdiDotsVertical}
+                                inline={false}
+                                aria-label="Options"
+                                height={16}
+                                width={16}
+                            />
                         </MenuButton>
                         <MenuList>
                             <MenuItem onSelect={noop}>Create</MenuItem>
@@ -136,15 +160,17 @@ const SERIES: Series<StandardDatum>[] = [
 ]
 
 function InsightCardWithChart() {
+    const seriesToggleState = useSeriesToggle()
+
     return (
         <Card.Root style={{ width: '400px', height: '400px' }}>
             <Card.Header title="Insight with chart" subtitle="CSS migration insight chart">
                 <Button variant="icon" className="p-1">
-                    <FilterOutlineIcon size="1rem" />
+                    <Icon svgPath={mdiFilterOutline} inline={false} aria-label="Options" height="1rem" width="1rem" />
                 </Button>
                 <Menu>
                     <MenuButton variant="icon" className="p-1">
-                        <DotsVerticalIcon size={16} />
+                        <Icon svgPath={mdiDotsVertical} inline={false} aria-label="Filters" height={16} width={16} />
                     </MenuButton>
                     <MenuList>
                         <MenuItem onSelect={noop}>Create</MenuItem>
@@ -160,12 +186,13 @@ function InsightCardWithChart() {
                         series={SERIES}
                         width={parent.width}
                         height={parent.height}
+                        seriesToggleState={seriesToggleState}
                     />
                 )}
             </ParentSize>
             <LegendList className="mt-3">
                 {SERIES.map(line => (
-                    <LegendItem key={line.id} color={getLineColor(line)} name={line.name} />
+                    <LegendItem key={line.id} color={line.color} name={line.name} />
                 ))}
             </LegendList>
         </Card.Root>

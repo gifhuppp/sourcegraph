@@ -1,6 +1,7 @@
-import { ContentMatch, SearchMatch } from '@sourcegraph/shared/src/search/stream'
+import type { LineMatch, SearchMatch, MatchedSymbol } from '@sourcegraph/shared/src/search/stream'
 
 const SUPPORTED_TYPES = new Set(['commit', 'content', 'path', 'symbol', 'repo'])
+const ID_SEPERATOR = '-#-'
 
 export function getFirstResultId(results: SearchMatch[]): string | null {
     const firstSupportedMatch: null | SearchMatch = results.find(result => SUPPORTED_TYPES.has(result.type)) ?? null
@@ -9,9 +10,11 @@ export function getFirstResultId(results: SearchMatch[]): string | null {
         return getResultId(
             firstSupportedMatch,
             firstSupportedMatch.type === 'content'
-                ? firstSupportedMatch.lineMatches[0]
+                ? firstSupportedMatch.lineMatches
+                    ? firstSupportedMatch.lineMatches[0]
+                    : undefined
                 : firstSupportedMatch.type === 'symbol'
-                ? firstSupportedMatch.symbols[0].name
+                ? firstSupportedMatch.symbols[0]
                 : undefined
         )
     }
@@ -38,28 +41,23 @@ export function getMatchId(match: SearchMatch): string {
 }
 
 export function getMatchIdForResult(resultId: string): string {
-    return resultId.split('-#-')[0]
+    return resultId.split(ID_SEPERATOR)[0]
 }
 
-export function getResultId(
-    match: SearchMatch,
-    lineMatchOrSymbolName?: ContentMatch['lineMatches'][0] | string
-): string {
+export type LineMatchItem = LineMatch
+export type SymbolMatchItem = MatchedSymbol
+export function getResultId(match: SearchMatch, lineOrSymbolMatch?: LineMatchItem | SymbolMatchItem): string {
     if (match.type === 'content') {
-        return `${getMatchId(match)}-#-${match.lineMatches.indexOf(
-            lineMatchOrSymbolName as ContentMatch['lineMatches'][0]
-        )}`
+        return `${getMatchId(match)}${ID_SEPERATOR}${match.lineMatches?.indexOf(lineOrSymbolMatch as LineMatchItem)}`
     }
-
     if (match.type === 'symbol') {
-        return `${getMatchId(match)}-#-${lineMatchOrSymbolName as string}`
+        return `${getMatchId(match)}${ID_SEPERATOR}${match.symbols.indexOf(lineOrSymbolMatch as SymbolMatchItem)}`
     }
-
     return getMatchId(match)
 }
 
-export function getLineMatchIndexOrSymbolIndexForFileResult(resultId: string): number {
-    return parseInt(resultId.split('-#-')[1], 10)
+export function getLineOrSymbolMatchIndexForFileResult(resultId: string): number {
+    return parseInt(resultId.split(ID_SEPERATOR)[1], 10)
 }
 
 export function getSearchResultElement(resultId: string): null | Element {

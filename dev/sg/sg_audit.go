@@ -10,16 +10,18 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/google/go-github/v41/github"
+	"github.com/google/go-github/v55/github"
 	"github.com/slack-go/slack"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/oauth2"
 
+	"github.com/sourcegraph/log"
+
+	"github.com/sourcegraph/sourcegraph/dev/sg/internal/category"
 	sgslack "github.com/sourcegraph/sourcegraph/dev/sg/internal/slack"
 	"github.com/sourcegraph/sourcegraph/dev/sg/internal/std"
 	"github.com/sourcegraph/sourcegraph/dev/team"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
-	"github.com/sourcegraph/sourcegraph/lib/log"
 )
 
 var auditFormatFlag string
@@ -30,7 +32,7 @@ var auditCommand = &cli.Command{
 	Usage:     "Display audit trail for resources",
 	ArgsUsage: "[target]",
 	Hidden:    true,
-	Category:  CategoryCompany,
+	Category:  category.Company,
 	Subcommands: []*cli.Command{{
 		Name:  "pr",
 		Usage: "Display audit trail for pull requests",
@@ -49,23 +51,23 @@ var auditCommand = &cli.Command{
 				Value:       os.Getenv("GITHUB_TOKEN"),
 			},
 		},
-		Action: execAdapter(func(ctx context.Context, args []string) error {
-			ghc := github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
+		Action: func(ctx *cli.Context) error {
+			ghc := github.NewClient(oauth2.NewClient(ctx.Context, oauth2.StaticTokenSource(
 				&oauth2.Token{AccessToken: auditPRGitHubToken},
 			)))
 
-			logger := log.Scoped("audit pr", "sg audit pr")
+			logger := log.Scoped("auditPR")
 			logger.Debug("fetching issues")
-			issues, err := fetchIssues(ctx, logger, ghc)
+			issues, err := fetchIssues(ctx.Context, logger, ghc)
 			if err != nil {
 				return err
 			}
-			slack, err := sgslack.NewClient(ctx)
+			slack, err := sgslack.NewClient(ctx.Context, std.Out)
 			if err != nil {
 				return err
 			}
 			logger.Debug("formatting results")
-			prAuditIssues, err := presentIssues(ctx, ghc, slack, issues)
+			prAuditIssues, err := presentIssues(ctx.Context, ghc, slack, issues)
 			if err != nil {
 				return err
 			}
@@ -88,7 +90,7 @@ var auditCommand = &cli.Command{
 			}
 
 			return nil
-		}),
+		},
 	}},
 }
 
@@ -144,7 +146,7 @@ func presentIssues(ctx context.Context, ghc *github.Client, slack *slack.Client,
 		res = append(res, prAuditIssue{
 			Title:     title,
 			Url:       issue.GetHTMLURL(),
-			CreatedAt: fmt.Sprintf("%d days ago", time.Since(issue.GetCreatedAt())/(time.Hour*24)),
+			CreatedAt: fmt.Sprintf("%d days ago", time.Since(issue.GetCreatedAt().Time)/(time.Hour*24)),
 			Author:    author.SlackName, // Use author.SlackID in the next iteration, when automating the posting of this message
 		})
 
@@ -170,7 +172,7 @@ In order to be compliant with SOC2, you or someone from your team *must* documen
 2. Explain why no test plan was provided and why the PR wasn't reviewed before being merged.
 3. Close the issue.
 
-Read more about [test plans](https://docs.sourcegraph.com/dev/background-information/testing_principles#test-plans) and [reviews](https://docs.sourcegraph.com/dev/background-information/pull_request_reviews).
+Read more about [test plans](https://docs-legacy.sourcegraph.com/dev/background-information/testing_principles#test-plans) and [reviews](https://docs.sourcegraph.com/dev/background-information/pull_request_reviews).
 {{""}}
 {{- range . }}
 - _{{ .CreatedAt }}_ @{{ .Author }}

@@ -1,28 +1,22 @@
-import React, { VideoHTMLAttributes } from 'react'
+import React, { type VideoHTMLAttributes } from 'react'
 
+import { mdiOpenInNew, mdiGithub, mdiCheck, mdiGitlab, mdiBitbucket, mdiLock, mdiBookOpenPageVariant } from '@mdi/js'
 import classNames from 'classnames'
-import BitbucketIcon from 'mdi-react/BitbucketIcon'
-import BookOpenPageVariantIcon from 'mdi-react/BookOpenPageVariantIcon'
-import CheckIcon from 'mdi-react/CheckIcon'
-import ExternalLinkIcon from 'mdi-react/ExternalLinkIcon'
-import GithubIcon from 'mdi-react/GithubIcon'
-import GitlabIcon from 'mdi-react/GitlabIcon'
-import LockIcon from 'mdi-react/LockIcon'
 
 import { SourcegraphLogo } from '@sourcegraph/branded/src/components/SourcegraphLogo'
 import { PhabricatorIcon } from '@sourcegraph/shared/src/components/icons'
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
 import { Link, Icon, Code, H1, H2, H3, Text } from '@sourcegraph/wildcard'
 
 import { getPlatformName } from '../../shared/util/context'
 
 import styles from './AfterInstallPageContent.module.scss'
 
-const Video: React.FunctionComponent<
-    React.PropsWithChildren<
-        { name: string } & Pick<VideoHTMLAttributes<HTMLVideoElement>, 'width' | 'height'> & ThemeProps
-    >
-> = ({ name, isLightTheme, width, height }) => {
+interface VideoProps extends Pick<VideoHTMLAttributes<HTMLVideoElement>, 'width' | 'height'> {
+    name: string
+    isLightTheme: boolean
+}
+
+const Video: React.FC<VideoProps> = ({ name, isLightTheme, width, height }) => {
     const suffix = isLightTheme ? 'Light' : 'Dark'
     return (
         <video
@@ -49,7 +43,11 @@ const Video: React.FunctionComponent<
     )
 }
 
-export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChildren<ThemeProps>> = props => {
+interface AfterInstallPageContentProps {
+    isLightTheme: boolean
+}
+
+export const AfterInstallPageContent: React.FC<AfterInstallPageContentProps> = props => {
     // Safari does not support the search shortcut. So don't show the feature.
     const isSafari = getPlatformName() === 'safari-extension'
     const showSearchShortcut = !isSafari
@@ -60,8 +58,8 @@ export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChi
                 <Link to="https://sourcegraph.com/search" target="_blank" rel="noopener">
                     <SourcegraphLogo className={styles.sourcegraphLogo} />
                 </Link>
-                <Link to="https://docs.sourcegraph.com/integration/browser_extension" target="_blank" rel="noopener">
-                    Browser extension docs <Icon role="img" as={ExternalLinkIcon} aria-hidden={true} />
+                <Link to="https://sourcegraph.com/docs/integration/browser_extension" target="_blank" rel="noopener">
+                    Browser extension docs <Icon aria-hidden={true} svgPath={mdiOpenInNew} />
                 </Link>
             </div>
 
@@ -77,10 +75,10 @@ export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChi
                     <H2 className="mb-4">How do I use the extension?</H2>
                     <div className="row">
                         <div className="col-md-6">
-                            <H3>Code intelligence on your code host</H3>
+                            <H3>Code navigation on your code host</H3>
                             <Text>
-                                Sourcegraph browser extension adds code intelligence to files and diffs on GitHub,
-                                GitHub Enterprise, GitLab, Phabricator, Bitbucket Server, and Gerrit.
+                                Sourcegraph browser extension adds code navigation to files and diffs on GitHub, GitHub
+                                Enterprise, GitLab, Phabricator, Bitbucket Server, and Gerrit.
                             </Text>
                             <Video {...props} name="CodeIntelligenceOnCodeHost" width={1760} height={1060} />
                         </div>
@@ -106,55 +104,34 @@ export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChi
                             <H2 className="mb-4">Make it work on your codehost</H2>
                             <div className="bg-2 rounded p-3 mb-3 d-flex flex-column justify-content-center">
                                 <H3 className={classNames('mb-3', styles.codeHostTitles)}>
-                                    <Icon
-                                        role="img"
-                                        className={styles.codeHostLogo}
-                                        as={GithubIcon}
-                                        aria-hidden={true}
-                                    />{' '}
+                                    <Icon className={styles.codeHostLogo} aria-hidden={true} svgPath={mdiGithub} />{' '}
                                     github.com
                                 </H3>
                                 <Text className="m-0">
-                                    <Icon role="img" as={CheckIcon} aria-hidden={true} /> No action required.Your
-                                    extension works here by default.
+                                    <Icon aria-hidden={true} svgPath={mdiCheck} /> No action required.Your extension
+                                    works here by default.
                                 </Text>
                             </div>
                             <div className="bg-2 rounded p-3 d-flex flex-column justify-content-center">
                                 <H3 className={classNames('d-flex flex-wrap', styles.codeHostTitles)}>
                                     <div className="mr-5 mb-3">
-                                        <Icon
-                                            role="img"
-                                            className={styles.codeHostLogo}
-                                            as={GithubIcon}
-                                            aria-hidden={true}
-                                        />{' '}
+                                        <Icon className={styles.codeHostLogo} aria-hidden={true} svgPath={mdiGithub} />{' '}
                                         GitHub Enterprise
                                     </div>
                                     <div className="mr-5 mb-3">
-                                        <Icon
-                                            role="img"
-                                            className={styles.codeHostLogo}
-                                            as={GitlabIcon}
-                                            aria-hidden={true}
-                                        />{' '}
+                                        <Icon className={styles.codeHostLogo} aria-hidden={true} svgPath={mdiGitlab} />{' '}
                                         GitLab
                                     </div>
                                     <div className="mr-5 mb-3">
                                         <Icon
-                                            role="img"
                                             className={styles.codeHostLogo}
-                                            as={BitbucketIcon}
                                             aria-hidden={true}
+                                            svgPath={mdiBitbucket}
                                         />{' '}
                                         Bitbucket Server
                                     </div>
                                     <div className="mr-5 mb-3">
-                                        <Icon
-                                            role="img"
-                                            className={styles.codeHostLogo}
-                                            as={PhabricatorIcon}
-                                            aria-hidden={true}
-                                        />{' '}
+                                        <Icon className={styles.codeHostLogo} as={PhabricatorIcon} aria-hidden={true} />{' '}
                                         Phabricator
                                     </div>
                                 </H3>
@@ -193,7 +170,7 @@ export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChi
                             <Text>By default, the browser extension works only for public code.</Text>
                             <div className="d-flex align-items-center">
                                 <div className="bg-3 rounded-circle p-2">
-                                    <Icon role="img" as={LockIcon} aria-hidden={true} />
+                                    <Icon aria-hidden={true} svgPath={mdiLock} />
                                 </div>
                                 <Text className="m-0 ml-3">
                                     To use the browser extension with your private repositories, you need to set up a{' '}
@@ -206,7 +183,7 @@ export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChi
                                     <li>
                                         <strong>Install Sourcegraph</strong> (
                                         <Link
-                                            to="https://docs.sourcegraph.com/admin/install"
+                                            to="https://sourcegraph.com/docs/admin/install"
                                             target="_blank"
                                             rel="noopener"
                                         >
@@ -241,12 +218,12 @@ export const AfterInstallPageContent: React.FunctionComponent<React.PropsWithChi
                     <H2 className="mb-4">Additional resources</H2>
                     <div className="d-flex w-100 align-items-center">
                         <div className="bg-3 rounded-circle p-2">
-                            <Icon role="img" as={BookOpenPageVariantIcon} aria-hidden={true} />
+                            <Icon aria-hidden={true} svgPath={mdiBookOpenPageVariant} />
                         </div>
                         <Text className="m-0 ml-3">
                             Read the{' '}
                             <Link
-                                to="https://docs.sourcegraph.com/integration/browser_extension"
+                                to="https://sourcegraph.com/docs/integration/browser_extension"
                                 rel="noopener"
                                 target="_blank"
                             >

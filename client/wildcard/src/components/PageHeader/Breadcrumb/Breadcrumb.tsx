@@ -2,14 +2,15 @@ import React from 'react'
 
 import classNames from 'classnames'
 
-import { LinkOrSpan } from '@sourcegraph/shared/src/components/LinkOrSpan'
+import { Icon, type IconType } from '../../Icon'
+import { LinkOrSpan } from '../../Link/LinkOrSpan'
 
 import styles from './Breadcrumb.module.scss'
 
-export type BreadcrumbIcon = React.ComponentType<{ className?: string; role?: React.AriaRole }>
+export type BreadcrumbIcon = IconType
 export type BreadcrumbText = React.ReactNode
 
-type BreadcrumbProps = React.HTMLAttributes<HTMLSpanElement> & {
+export type BreadcrumbProps = React.HTMLAttributes<HTMLSpanElement> & {
     /** Use a valid path to render this Breadcrumb as a Link */
     to?: string
     icon?: BreadcrumbIcon
@@ -25,16 +26,27 @@ type BreadcrumbProps = React.HTMLAttributes<HTMLSpanElement> & {
 
 export const Breadcrumb: React.FunctionComponent<BreadcrumbProps> = ({
     to,
-    icon: Icon,
+    icon,
     className,
     children,
     'aria-label': ariaLabel,
     ...rest
-}) => (
-    <span className={classNames(styles.wrapper, className)} {...rest}>
-        <LinkOrSpan className={styles.path} to={to} aria-label={ariaLabel}>
-            {Icon && <Icon role="img" className={styles.icon} aria-hidden={true} />}
-            {children && <span className={styles.text}>{children}</span>}
-        </LinkOrSpan>
-    </span>
-)
+}) => {
+    const iconHidden = !!children || !ariaLabel
+
+    return (
+        <span className={classNames(styles.wrapper, className)} {...rest}>
+            <LinkOrSpan className={styles.path} to={to} aria-label={children ? ariaLabel : undefined}>
+                {icon && (
+                    <Icon
+                        inline={false}
+                        className={styles.icon}
+                        {...(typeof icon === 'string' ? { svgPath: icon } : { as: icon })}
+                        {...(iconHidden ? { 'aria-hidden': true } : { 'aria-label': ariaLabel })}
+                    />
+                )}
+                {children && <span className={styles.text}>{children}</span>}
+            </LinkOrSpan>
+        </span>
+    )
+}

@@ -1,4 +1,4 @@
-import { storiesOf } from '@storybook/react'
+import type { Decorator, Meta, StoryFn } from '@storybook/react'
 import { noop } from 'lodash'
 
 import { ExternalServiceKind } from '@sourcegraph/shared/src/graphql-operations'
@@ -7,23 +7,25 @@ import { WebStory } from '../../../components/WebStory'
 
 import { RemoveCredentialModal } from './RemoveCredentialModal'
 
-const { add } = storiesOf('web/batches/settings/RemoveCredentialModal', module)
-    .addDecorator(story => <div className="p-3 container">{story()}</div>)
-    .addParameters({
-        chromatic: {
-            // Delay screenshot taking, so the modal has opened by the time the screenshot is taken.
-            delay: 2000,
-        },
-    })
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+const config: Meta = {
+    title: 'web/batches/settings/RemoveCredentialModal',
+    decorators: [decorator],
+    parameters: {},
+}
+
+export default config
 
 const credential = {
     id: '123',
     isSiteCredential: false,
     sshPublicKey:
         'ssh-rsa randorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorandorando',
+    gitHubApp: null,
 }
 
-add('No ssh', () => (
+export const NoSsh: StoryFn = () => (
     <WebStory>
         {props => (
             <RemoveCredentialModal
@@ -34,6 +36,8 @@ add('No ssh', () => (
                     requiresUsername: false,
                     externalServiceKind: ExternalServiceKind.GITHUB,
                     externalServiceURL: 'https://github.com/',
+                    supportsCommitSigning: false,
+                    commitSigningConfiguration: null,
                 }}
                 credential={credential}
                 afterDelete={noop}
@@ -41,9 +45,11 @@ add('No ssh', () => (
             />
         )}
     </WebStory>
-))
+)
 
-add('Requires ssh', () => (
+NoSsh.storyName = 'No ssh'
+
+export const RequiresSsh: StoryFn = () => (
     <WebStory>
         {props => (
             <RemoveCredentialModal
@@ -54,6 +60,8 @@ add('Requires ssh', () => (
                     requiresUsername: false,
                     externalServiceKind: ExternalServiceKind.GITHUB,
                     externalServiceURL: 'https://github.com/',
+                    supportsCommitSigning: false,
+                    commitSigningConfiguration: null,
                 }}
                 credential={credential}
                 afterDelete={noop}
@@ -61,4 +69,6 @@ add('Requires ssh', () => (
             />
         )}
     </WebStory>
-))
+)
+
+RequiresSsh.storyName = 'Requires ssh'

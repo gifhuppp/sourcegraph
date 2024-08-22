@@ -1,17 +1,20 @@
-import { storiesOf } from '@storybook/react'
+import type { Meta, StoryFn } from '@storybook/react'
 import sinon from 'sinon'
 
 import { H2 } from '@sourcegraph/wildcard'
 
 import { WebStory } from '../../../../components/WebStory'
 import { mockAuthenticatedUser } from '../../testing/util'
-import { ActionProps } from '../FormActionArea'
+import type { ActionProps } from '../FormActionArea'
 
 import { EmailAction } from './EmailAction'
 
-const { add } = storiesOf('web/enterprise/code-monitoring/actions/EmailAction', module).addParameters({
-    chromatic: { disableSnapshot: false },
-})
+const config: Meta = {
+    title: 'web/enterprise/code-monitoring/actions/EmailAction',
+    parameters: {},
+}
+
+export default config
 
 const defaultProps: ActionProps = {
     action: undefined,
@@ -28,8 +31,9 @@ const action: ActionProps['action'] = {
     enabled: true,
     includeResults: false,
 }
+window.context.emailEnabled = true
 
-add('EmailAction', () => (
+export const EmailActionStory: StoryFn = () => (
     <WebStory>
         {() => (
             <>
@@ -56,4 +60,6 @@ add('EmailAction', () => (
             </>
         )}
     </WebStory>
-))
+)
+
+EmailActionStory.storyName = 'EmailAction'

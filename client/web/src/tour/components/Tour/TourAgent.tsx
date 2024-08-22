@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 
-import CheckCircleIcon from 'mdi-react/CheckCircleIcon'
+import { mdiCheckCircle } from '@mdi/js'
 import ReactDOM from 'react-dom'
 import { useLocation } from 'react-router-dom'
 
-import { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
+import type { TourTaskStepType, TourTaskType } from '@sourcegraph/shared/src/settings/temporary'
+import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { Icon } from '@sourcegraph/wildcard'
 
 import { GETTING_STARTED_TOUR_MARKER } from './TourInfo'
-import { TourTaskType, TourTaskStepType } from './types'
 import { parseURIMarkers } from './utils'
 
 import styles from './Tour.module.scss'
@@ -64,7 +64,7 @@ export const TourAgent: React.FunctionComponent<React.PropsWithChildren<TourAgen
 
         return ReactDOM.createPortal(
             <div className={styles.infoPanel}>
-                <Icon role="img" as={CheckCircleIcon} className={styles.infoIcon} aria-hidden={true} />
+                <Icon className={styles.infoIcon} aria-hidden={true} svgPath={mdiCheckCircle} />
                 <span>{info}</span>
             </div>,
             infoContainerReference.current

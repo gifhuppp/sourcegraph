@@ -1,6 +1,9 @@
 import React, { createRef, useCallback, useEffect, useMemo, useState } from 'react'
 
-import { SearchMatch } from '@sourcegraph/shared/src/search/stream'
+import type { SearchMatch } from '@sourcegraph/shared/src/search/stream'
+import type { SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
+
+import { isAnyDropdownOpen } from '../GlobalKeyboardListeners'
 
 import { CommitSearchResult } from './CommitSearchResult'
 import { FileSearchResult } from './FileSearchResult'
@@ -8,7 +11,7 @@ import { PathSearchResult } from './PathSearchResult'
 import { RepoSearchResult } from './RepoSearchResult'
 import {
     getFirstResultId,
-    getLineMatchIndexOrSymbolIndexForFileResult,
+    getLineOrSymbolMatchIndexForFileResult,
     getMatchId,
     getMatchIdForResult,
     getSearchResultElement,
@@ -17,10 +20,10 @@ import {
 
 import styles from './SearchResultList.module.scss'
 
-interface Props {
-    onPreviewChange: (match: SearchMatch, lineMatchIndexOrSymbolIndex?: number) => Promise<void>
+interface Props extends SettingsCascadeProps {
+    onPreviewChange: (match: SearchMatch, lineOrSymbolMatchIndex?: number) => Promise<void>
     onPreviewClear: () => Promise<void>
-    onOpen: (match: SearchMatch, lineMatchIndexOrSymbolIndex?: number) => Promise<void>
+    onOpen: (match: SearchMatch, lineOrSymbolMatchIndex?: number) => Promise<void>
     matches: SearchMatch[]
 }
 
@@ -29,6 +32,7 @@ export const SearchResultList: React.FunctionComponent<Props> = ({
     onPreviewChange,
     onPreviewClear,
     onOpen,
+    settingsCascade,
 }) => {
     const scrollViewReference = createRef<HTMLDivElement>()
     const [selectedResultId, setSelectedResultId] = useState<null | string>(null)
@@ -53,13 +57,13 @@ export const SearchResultList: React.FunctionComponent<Props> = ({
                     onPreviewChange(
                         match,
                         match.type === 'content' || match.type === 'symbol'
-                            ? getLineMatchIndexOrSymbolIndexForFileResult(resultId)
+                            ? getLineOrSymbolMatchIndexForFileResult(resultId)
                             : undefined
                     )
                         .then(() => {})
                         .catch(() => {})
                 } else {
-                    console.log(`No match found for result id: ${resultId}`)
+                    console.log(`No match found for result id for selection: ${resultId}`)
                 }
             } else {
                 onPreviewClear()
@@ -69,6 +73,28 @@ export const SearchResultList: React.FunctionComponent<Props> = ({
             setSelectedResultId(resultId)
         },
         [onPreviewChange, onPreviewClear, matchIdToMatchMap]
+    )
+
+    const openResult = useCallback(
+        (resultId: null | string) => {
+            if (resultId !== null) {
+                const matchId = getMatchIdForResult(resultId)
+                const match = matchIdToMatchMap.get(matchId)
+                if (match) {
+                    onOpen(
+                        match,
+                        match.type === 'content' || match.type === 'symbol'
+                            ? getLineOrSymbolMatchIndexForFileResult(resultId)
+                            : undefined
+                    )
+                        .then(() => {})
+                        .catch(() => {})
+                } else {
+                    console.log(`No match found for result id for opening: ${resultId}`)
+                }
+            }
+        },
+        [onOpen, matchIdToMatchMap]
     )
 
     useEffect(() => {
@@ -82,16 +108,12 @@ export const SearchResultList: React.FunctionComponent<Props> = ({
             const target = event.target as HTMLElement
 
             // We only want to handle keydown events on the search box
-            if (
-                (target.nodeName !== 'TEXTAREA' || !target.className.includes('inputarea')) &&
-                target.nodeName !== 'BODY'
-            ) {
+            if (!target.className.includes('cm-content') && target.nodeName !== 'BODY') {
                 return
             }
 
             // Ignore events when the autocomplete dropdown is open
-            const isAutocompleteOpen = document.querySelector('.monaco-list.element-focused') !== null
-            if (isAutocompleteOpen) {
+            if (isAnyDropdownOpen()) {
                 return
             }
 
@@ -111,7 +133,7 @@ export const SearchResultList: React.FunctionComponent<Props> = ({
                     onOpen(
                         match,
                         match.type === 'content' || match.type === 'symbol'
-                            ? getLineMatchIndexOrSymbolIndexForFileResult(selectedResultId)
+                            ? getLineOrSymbolMatchIndexForFileResult(selectedResultId)
                             : undefined
                     )
                         .then(() => {})
@@ -156,56 +178,69 @@ export const SearchResultList: React.FunctionComponent<Props> = ({
         <div className={styles.list} ref={scrollViewReference}>
             {matches.map((match: SearchMatch) => {
                 switch (match.type) {
-                    case 'commit':
+                    case 'commit': {
                         return (
                             <CommitSearchResult
                                 key={`${match.repository}-${match.url}`}
                                 match={match}
                                 selectedResult={selectedResultId}
                                 selectResult={selectResult}
+                                openResult={openResult}
                             />
                         )
-                    case 'content':
+                    }
+                    case 'content': {
                         return (
                             <FileSearchResult
                                 key={`${match.repository}-${match.path}`}
                                 match={match}
                                 selectedResult={selectedResultId}
                                 selectResult={selectResult}
+                                openResult={openResult}
+                                settingsCascade={settingsCascade}
                             />
                         )
-                    case 'symbol':
+                    }
+                    case 'symbol': {
                         return (
                             <FileSearchResult
                                 key={`${match.repository}-${match.path}`}
                                 match={match}
                                 selectedResult={selectedResultId}
                                 selectResult={selectResult}
+                                openResult={openResult}
+                                settingsCascade={settingsCascade}
                             />
                         )
-                    case 'repo':
+                    }
+                    case 'repo': {
                         return (
                             <RepoSearchResult
                                 key={`${match.repository}`}
                                 match={match}
                                 selectedResult={selectedResultId}
                                 selectResult={selectResult}
+                                openResult={openResult}
                             />
                         )
-                    case 'path':
+                    }
+                    case 'path': {
                         return (
                             <PathSearchResult
                                 key={`${match.repository}-${match.path}`}
                                 match={match}
                                 selectedResult={selectedResultId}
                                 selectResult={selectResult}
+                                openResult={openResult}
                             />
                         )
-                    default:
+                    }
+                    default: {
                         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
                         // @ts-ignore This is here in preparation for future match types
                         console.log('Unknown search result type:', match.type)
                         return null
+                    }
                 }
             })}
         </div>

@@ -1,130 +1,152 @@
-import * as React from 'react'
+import React, { useEffect } from 'react'
 
 import classNames from 'classnames'
-import { parseISO } from 'date-fns'
-import differenceInDays from 'date-fns/differenceInDays'
-import { Subscription } from 'rxjs'
+import { parseISO, differenceInDays } from 'date-fns'
 
 import { renderMarkdown } from '@sourcegraph/common'
-import { Markdown } from '@sourcegraph/shared/src/components/Markdown'
-import { Settings } from '@sourcegraph/shared/src/schema/settings.schema'
-import { isSettingsValid, SettingsCascadeProps } from '@sourcegraph/shared/src/settings/settings'
-import { Link } from '@sourcegraph/wildcard'
+import { gql, useQuery } from '@sourcegraph/http-client'
+import { useSettings } from '@sourcegraph/shared/src/settings/settings'
+import { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import { Link, Markdown } from '@sourcegraph/wildcard'
 
-import { AuthenticatedUser } from '../auth'
+import type { AuthenticatedUser } from '../auth'
 import { DismissibleAlert } from '../components/DismissibleAlert'
-import { SiteFlags } from '../site'
-import { siteFlags } from '../site/backend'
-import { CodeHostScopeAlerts, GitLabScopeAlert } from '../site/CodeHostScopeAlerts/CodeHostScopeAlerts'
-import { DockerForMacAlert } from '../site/DockerForMacAlert'
+import { useFeatureFlag } from '../featureFlags/useFeatureFlag'
+import type { GlobalAlertsSiteFlagsResult, GlobalAlertsSiteFlagsVariables } from '../graphql-operations'
 import { FreeUsersExceededAlert } from '../site/FreeUsersExceededAlert'
 import { LicenseExpirationAlert } from '../site/LicenseExpirationAlert'
 import { NeedsRepositoryConfigurationAlert } from '../site/NeedsRepositoryConfigurationAlert'
+import { siteFlagFieldsFragment } from '../storm/pages/LayoutPage/LayoutPage.loader'
 
 import { GlobalAlert } from './GlobalAlert'
-import { Notices } from './Notices'
+import { Notices, VerifyEmailNotices } from './Notices'
 
 import styles from './GlobalAlerts.module.scss'
 
-interface Props extends SettingsCascadeProps {
+interface Props extends TelemetryV2Props {
     authenticatedUser: AuthenticatedUser | null
 }
 
-interface State {
-    siteFlags?: SiteFlags
-}
+// NOTE: The name of the query is also added in the refreshSiteFlags() function
+// found in client/web/src/site/backend.tsx
+const QUERY = gql`
+    query GlobalAlertsSiteFlags {
+        site {
+            ...SiteFlagFields
+        }
+    }
+
+    ${siteFlagFieldsFragment}
+`
+/**
+ * Alerts that should not be visible when admin onboarding is enabled
+ */
+const adminOnboardingRemovedAlerts = ['externalURL', 'email.smtp', 'enable repository permissions']
 
 /**
  * Fetches and displays relevant global alerts at the top of the page
  */
-export class GlobalAlerts extends React.PureComponent<Props, State> {
-    public state: State = {}
+export const GlobalAlerts: React.FunctionComponent<Props> = ({ authenticatedUser, telemetryRecorder }) => {
+    const settings = useSettings()
+    const [isAdminOnboardingEnabled] = useFeatureFlag('admin-onboarding', true)
+    const { data } = useQuery<GlobalAlertsSiteFlagsResult, GlobalAlertsSiteFlagsVariables>(QUERY, {
+        fetchPolicy: 'cache-and-network',
+    })
 
-    private subscriptions = new Subscription()
+    useEffect(() => {
+        if (settings?.motd && Array.isArray(settings.motd)) {
+            telemetryRecorder.recordEvent('alert.motd', 'view')
+        }
+        if (process.env.SOURCEGRAPH_API_URL) {
+            telemetryRecorder.recordEvent('alert.proxyAPI', 'view')
+        }
+    }, [settings?.motd, telemetryRecorder])
 
-    public componentDidMount(): void {
-        this.subscriptions.add(siteFlags.subscribe(siteFlags => this.setState({ siteFlags })))
+    const siteFlagsValue = data?.site
+    let alerts = siteFlagsValue?.alerts ?? []
+
+    if (isAdminOnboardingEnabled) {
+        alerts =
+            siteFlagsValue?.alerts.filter(
+                ({ message }) => !adminOnboardingRemovedAlerts.some(alt => message.includes(alt))
+            ) ?? []
     }
 
-    public componentWillUnmount(): void {
-        this.subscriptions.unsubscribe()
-    }
-
-    public render(): JSX.Element | null {
-        return (
-            <div className={classNames('test-global-alert', styles.globalAlerts)}>
-                {this.state.siteFlags && (
-                    <>
-                        {this.state.siteFlags.needsRepositoryConfiguration && (
-                            <NeedsRepositoryConfigurationAlert className={styles.alert} />
-                        )}
-                        {this.state.siteFlags.freeUsersExceeded && (
-                            <FreeUsersExceededAlert
-                                noLicenseWarningUserCount={
-                                    this.state.siteFlags.productSubscription.noLicenseWarningUserCount
-                                }
-                                className={styles.alert}
-                            />
-                        )}
-                        {/* Only show if the user has already added repositories; if not yet, the user wouldn't experience any Docker for Mac perf issues anyway. */}
-                        {window.context.likelyDockerOnMac && window.context.deployType === 'docker-container' && (
-                            <DockerForMacAlert className={styles.alert} />
-                        )}
-                        {window.context.sourcegraphDotComMode && (
-                            <CodeHostScopeAlerts authenticatedUser={this.props.authenticatedUser} />
-                        )}
-                        {window.context.sourcegraphDotComMode && (
-                            <GitLabScopeAlert authenticatedUser={this.props.authenticatedUser} />
-                        )}
-                        {this.state.siteFlags.alerts.map((alert, index) => (
-                            <GlobalAlert key={index} alert={alert} className={styles.alert} />
-                        ))}
-                        {this.state.siteFlags.productSubscription.license &&
-                            (() => {
-                                const expiresAt = parseISO(this.state.siteFlags.productSubscription.license.expiresAt)
-                                return (
-                                    differenceInDays(expiresAt, Date.now()) <= 7 && (
-                                        <LicenseExpirationAlert
-                                            expiresAt={expiresAt}
-                                            daysLeft={Math.floor(differenceInDays(expiresAt, Date.now()))}
-                                            className={styles.alert}
-                                        />
-                                    )
-                                )
-                            })()}
-                    </>
-                )}
-                {isSettingsValid<Settings>(this.props.settingsCascade) &&
-                    this.props.settingsCascade.final.motd &&
-                    Array.isArray(this.props.settingsCascade.final.motd) &&
-                    this.props.settingsCascade.final.motd.map(motd => (
-                        <DismissibleAlert
-                            key={motd}
-                            partialStorageKey={`motd.${motd}`}
-                            variant="info"
+    return (
+        <div className={classNames('test-global-alert', styles.globalAlerts)}>
+            {siteFlagsValue && (
+                <>
+                    {siteFlagsValue?.needsRepositoryConfiguration && (
+                        <NeedsRepositoryConfigurationAlert
                             className={styles.alert}
-                        >
-                            <Markdown dangerousInnerHTML={renderMarkdown(motd)} />
-                        </DismissibleAlert>
+                            telemetryRecorder={telemetryRecorder}
+                        />
+                    )}
+                    {siteFlagsValue.freeUsersExceeded && (
+                        <FreeUsersExceededAlert
+                            noLicenseWarningUserCount={siteFlagsValue.productSubscription.noLicenseWarningUserCount}
+                            className={styles.alert}
+                            telemetryRecorder={telemetryRecorder}
+                        />
+                    )}
+                    {alerts.map((alert, index) => (
+                        <GlobalAlert
+                            key={index}
+                            alert={alert}
+                            className={styles.alert}
+                            telemetryRecorder={telemetryRecorder}
+                        />
                     ))}
-                {process.env.SOURCEGRAPH_API_URL && (
+                    {siteFlagsValue.productSubscription.license &&
+                        (() => {
+                            const expiresAt = parseISO(siteFlagsValue.productSubscription.license.expiresAt)
+                            return (
+                                differenceInDays(expiresAt, Date.now()) <= 7 && (
+                                    <LicenseExpirationAlert
+                                        expiresAt={expiresAt}
+                                        daysLeft={Math.floor(differenceInDays(expiresAt, Date.now()))}
+                                        className={styles.alert}
+                                        telemetryRecorder={telemetryRecorder}
+                                    />
+                                )
+                            )
+                        })()}
+                </>
+            )}
+            {settings?.motd &&
+                Array.isArray(settings.motd) &&
+                settings.motd.map(motd => (
                     <DismissibleAlert
-                        key="dev-web-server-alert"
-                        partialStorageKey="dev-web-server-alert"
-                        variant="danger"
+                        key={motd}
+                        partialStorageKey={`motd.${motd}`}
+                        variant="info"
                         className={styles.alert}
                     >
-                        <div>
-                            <strong>Warning!</strong> This build uses data from the proxied API:{' '}
-                            <Link target="__blank" to={process.env.SOURCEGRAPH_API_URL}>
-                                {process.env.SOURCEGRAPH_API_URL}
-                            </Link>
-                        </div>
-                        .
+                        <Markdown dangerousInnerHTML={renderMarkdown(motd)} />
                     </DismissibleAlert>
-                )}
-                <Notices alertClassName={styles.alert} location="top" settingsCascade={this.props.settingsCascade} />
-            </div>
-        )
-    }
+                ))}
+            {process.env.SOURCEGRAPH_API_URL && (
+                <DismissibleAlert
+                    key="dev-web-server-alert"
+                    partialStorageKey="dev-web-server-alert"
+                    variant="danger"
+                    className={styles.alert}
+                >
+                    <div>
+                        <strong>Warning!</strong> This build uses data from the proxied API:{' '}
+                        <Link className={styles.proxyLink} target="__blank" to={process.env.SOURCEGRAPH_API_URL}>
+                            {process.env.SOURCEGRAPH_API_URL}
+                        </Link>
+                    </div>
+                    .
+                </DismissibleAlert>
+            )}
+            <Notices alertClassName={styles.alert} location="top" telemetryRecorder={telemetryRecorder} />
+            <VerifyEmailNotices
+                authenticatedUser={authenticatedUser}
+                alertClassName={styles.alert}
+                telemetryRecorder={telemetryRecorder}
+            />
+        </div>
+    )
 }

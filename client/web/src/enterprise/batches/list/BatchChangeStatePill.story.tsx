@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { storiesOf } from '@storybook/react'
+import type { Decorator, StoryFn, Meta } from '@storybook/react'
 import { upperFirst } from 'lodash'
 
 import { H3 } from '@sourcegraph/wildcard'
@@ -8,11 +8,16 @@ import { H3 } from '@sourcegraph/wildcard'
 import { WebStory } from '../../../components/WebStory'
 import { BatchChangeState, BatchSpecState } from '../../../graphql-operations'
 
-import { BatchChangeStatePill, BatchChangeStatePillProps } from './BatchChangeStatePill'
+import { BatchChangeStatePill, type BatchChangeStatePillProps } from './BatchChangeStatePill'
 
-const { add } = storiesOf('web/batches/list', module).addDecorator(story => (
-    <div className="p-3 container">{story()}</div>
-))
+const decorator: Decorator = story => <div className="p-3 container">{story()}</div>
+
+const config: Meta = {
+    title: 'web/batches/list',
+    decorators: [decorator],
+}
+
+export default config
 
 const buildTestProps = (
     state: BatchChangeState,
@@ -39,12 +44,12 @@ const STATE_COMBINATIONS: BatchChangeStatePillProps[] = Object.values(BatchChang
     ])
 )
 
-add('BatchChangeStatePill', () => (
+export const BatchChangeStatePillStory: StoryFn = () => (
     <WebStory>
         {props => (
             <div className="d-flex flex-column align-items-start">
                 {STATE_COMBINATIONS.map(({ state, latestExecutionState, currentSpecID, latestSpecID }) => (
-                    <React.Fragment key={`${state}-${latestExecutionState || ''}`}>
+                    <React.Fragment key={`${state}-${latestExecutionState || ''}-${currentSpecID}-${latestSpecID}`}>
                         <H3>
                             {upperFirst(state.toLowerCase())}
                             {latestExecutionState ? `, ${upperFirst(latestExecutionState.toLowerCase())}` : ''}
@@ -63,4 +68,6 @@ add('BatchChangeStatePill', () => (
             </div>
         )}
     </WebStory>
-))
+)
+
+BatchChangeStatePillStory.storyName = 'BatchChangeStatePill'

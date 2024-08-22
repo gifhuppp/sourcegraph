@@ -1,70 +1,108 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Observable, of, Subscription } from 'rxjs'
+import { type Observable, of, type Subscription } from 'rxjs'
 
 import { requestGraphQLCommon } from '@sourcegraph/http-client'
+import type { AuthenticatedUser } from '@sourcegraph/shared/src/auth'
+import type { PlatformContext } from '@sourcegraph/shared/src/platform/context'
 import {
-    fetchAutoDefinedSearchContexts,
-    fetchSearchContexts,
+    fetchSearchContexts as sharedFetchSearchContexts,
     getUserSearchContextNamespaces,
-    QueryState,
-    SearchPatternType,
-} from '@sourcegraph/search'
-import { SearchBox } from '@sourcegraph/search-ui'
-import { AuthenticatedUser } from '@sourcegraph/shared/src/auth'
-import { PlatformContext } from '@sourcegraph/shared/src/platform/context'
+    type QueryState,
+} from '@sourcegraph/shared/src/search'
 import {
     aggregateStreamingSearch,
+    type AggregateStreamingSearchResults,
     LATEST_VERSION,
-    Progress,
-    SearchMatch,
-    StreamingResultsState,
+    type Progress,
+    type SearchMatch,
+    type StreamingResultsState,
 } from '@sourcegraph/shared/src/search/stream'
 import { fetchStreamSuggestions } from '@sourcegraph/shared/src/search/suggestions'
-import { EMPTY_SETTINGS_CASCADE, SettingsCascadeOrError } from '@sourcegraph/shared/src/settings/settings'
-import { NOOP_TELEMETRY_SERVICE } from '@sourcegraph/shared/src/telemetry/telemetryService'
+import { EMPTY_SETTINGS_CASCADE, type SettingsCascadeOrError } from '@sourcegraph/shared/src/settings/settings'
+import type { TelemetryService } from '@sourcegraph/shared/src/telemetry/telemetryService'
+import { ThemeContext, ThemeSetting } from '@sourcegraph/shared/src/theme'
 import { useObservable, WildcardThemeContext } from '@sourcegraph/wildcard'
 
-import { getAuthenticatedUser } from '../sourcegraph-api-access/api-gateway'
+import { SearchPatternType } from '../graphql-operations'
 import { initializeSourcegraphSettings } from '../sourcegraphSettings'
 
+import { getInstanceURL } from '.'
+import { fetchSearchContextsCompat } from './compat/fetchSearchContexts'
+import { GlobalKeyboardListeners } from './GlobalKeyboardListeners'
+import { JetBrainsSearchBox } from './input/JetBrainsSearchBox'
 import { saveLastSearch } from './js-to-java-bridge'
 import { SearchResultList } from './results/SearchResultList'
 import { StatusBar } from './StatusBar'
-import { Search } from './types'
+import type { Search } from './types'
 
 import styles from './App.module.scss'
 
 interface Props {
     isDarkTheme: boolean
     instanceURL: string
-    isGlobbingEnabled: boolean
     accessToken: string | null
-    onPreviewChange: (match: SearchMatch, lineMatchIndexOrSymbolIndex?: number) => Promise<void>
+    customRequestHeaders: Record<string, string> | null
+    onPreviewChange: (match: SearchMatch, lineOrSymbolMatchIndex?: number) => Promise<void>
     onPreviewClear: () => Promise<void>
-    onOpen: (match: SearchMatch, lineMatchIndexOrSymbolIndex?: number) => Promise<void>
+    onOpen: (match: SearchMatch, lineOrSymbolMatchIndex?: number) => Promise<void>
+    onSearchError: (errorMessage: string) => Promise<void>
     initialSearch: Search | null
-    initialAuthenticatedUser: AuthenticatedUser | null
+    backendVersion: string | null
+    authenticatedUser: AuthenticatedUser | null
+    telemetryService: TelemetryService
 }
 
 function fetchStreamSuggestionsWithStaticUrl(query: string): Observable<SearchMatch[]> {
-    return fetchStreamSuggestions(query, 'https://sourcegraph.com/.api')
+    return fetchStreamSuggestions(query, getInstanceURL() + '.api')
+}
+
+const fetchSearchContexts = (backendVersion: string | null): typeof sharedFetchSearchContexts => {
+    if (backendVersion === null || backendVersion === '0.0.0+dev') {
+        return sharedFetchSearchContexts
+    }
+    const [major, minor] = backendVersion.split('.').map(Number)
+    // This is the case for dotcom
+    if (Number.isNaN(major) || Number.isNaN(minor)) {
+        return sharedFetchSearchContexts
+    }
+    // The shared fetchSearchContexts was updated to query additional fields starting from 4.3.
+    const isAfterOrOn4_3 = major > 4 || (major === 4 && minor >= 3)
+    return isAfterOrOn4_3 ? sharedFetchSearchContexts : fetchSearchContextsCompat
+}
+
+function fallbackToLiteralSearchIfNeeded(
+    patternType: SearchPatternType | undefined,
+    backendVersion: string | null
+): SearchPatternType | undefined {
+    if (backendVersion === null || patternType !== SearchPatternType.standard) {
+        return patternType
+    }
+
+    const [major, minor] = backendVersion.split('.').map(Number)
+    // SearchPatternType.standard is not supported by versions before 3.43.0
+    return major < 3 || (major === 3 && minor < 43) ? SearchPatternType.literal : SearchPatternType.standard
 }
 
 export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
     isDarkTheme,
     instanceURL,
-    isGlobbingEnabled,
     accessToken,
+    customRequestHeaders,
     onPreviewChange,
     onPreviewClear,
     onOpen,
+    onSearchError,
     initialSearch,
-    initialAuthenticatedUser,
-}: Props) => {
-    const [authState, setAuthState] = useState<'initial' | 'validating' | 'success' | 'failure'>('initial')
-    const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(initialAuthenticatedUser)
+    backendVersion,
+    authenticatedUser,
+    telemetryService,
+}) => {
+    const authState = authenticatedUser !== null ? 'success' : 'failure'
 
+    /**
+     * @deprecated Prefer using Apollo-Client instead if possible. The migration is in progress.
+     */
     const requestGraphQL = useCallback<PlatformContext['requestGraphQL']>(
         args =>
             requestGraphQLCommon({
@@ -75,30 +113,15 @@ export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
                     'Content-Type': 'application/json',
                     'X-Sourcegraph-Should-Trace': new URLSearchParams(window.location.search).get('trace') || 'false',
                     ...(accessToken && { Authorization: `token ${accessToken}` }),
+                    ...customRequestHeaders,
                 },
             }),
-        [instanceURL, accessToken]
+        [instanceURL, accessToken, customRequestHeaders]
     )
 
     const settingsCascade: SettingsCascadeOrError =
         useObservable(useMemo(() => initializeSourcegraphSettings(requestGraphQL).settings, [requestGraphQL])) ||
         EMPTY_SETTINGS_CASCADE
-
-    useEffect(() => {
-        setAuthState('validating')
-        getAuthenticatedUser(instanceURL, accessToken)
-            .then(authenticatedUser => {
-                setAuthState(authenticatedUser ? 'success' : 'failure')
-                if (accessToken) {
-                    console.warn(`No authenticated user with access token “${accessToken || ''}”`)
-                }
-                setAuthenticatedUser(authenticatedUser)
-            })
-            .catch(() => {
-                setAuthState('failure')
-                console.warn(`Failed to validate authentication with access token “${accessToken || ''}”`)
-            })
-    }, [instanceURL, accessToken])
 
     const platformContext = {
         requestGraphQL,
@@ -111,7 +134,9 @@ export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
         initialSearch ?? {
             query: '',
             caseSensitive: false,
-            patternType: SearchPatternType.literal,
+            patternType:
+                fallbackToLiteralSearchIfNeeded(SearchPatternType.standard, backendVersion) ||
+                SearchPatternType.literal,
             selectedSearchContextSpec: 'global',
         }
     )
@@ -134,7 +159,7 @@ export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
         }) => {
             const query = userQueryState.query ?? ''
             const caseSensitive = options?.caseSensitive
-            const patternType = options?.patternType
+            const patternType = fallbackToLiteralSearchIfNeeded(options?.patternType, backendVersion)
             const contextSpec = options?.contextSpec
             const forceNewSearch = options?.forceNewSearch ?? false
 
@@ -151,32 +176,43 @@ export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
                 return
             }
 
+            const nextSearch = {
+                query,
+                caseSensitive: caseSensitive ?? lastSearch.caseSensitive,
+                patternType: patternType ?? lastSearch.patternType,
+                selectedSearchContextSpec: options?.contextSpec ?? lastSearch.selectedSearchContextSpec,
+            }
+
             // If we don't unsubscribe, the previous search will be continued after the new search and search results will be mixed
             subscription.current?.unsubscribe()
             subscription.current = aggregateStreamingSearch(
-                of(`context:${contextSpec ?? lastSearch.selectedSearchContextSpec} ${query}`),
+                of(`context:${nextSearch.selectedSearchContextSpec} ${query}`),
                 {
                     version: LATEST_VERSION,
-                    caseSensitive: caseSensitive ?? lastSearch.caseSensitive,
-                    patternType: patternType ?? lastSearch.patternType,
+                    caseSensitive: nextSearch.caseSensitive,
+                    patternType: nextSearch.patternType,
                     trace: undefined,
-                    sourcegraphURL: 'https://sourcegraph.com/.api',
-                    decorationContextLines: 0,
+                    sourcegraphURL: instanceURL + '.api',
+                    displayLimit: 200,
                 }
-            ).subscribe(searchResults => {
+            ).subscribe((searchResults: AggregateStreamingSearchResults) => {
+                if (searchResults.state === 'error') {
+                    setProgressState('error')
+                    onSearchError(searchResults.error.message)
+                        .then(() => {})
+                        .catch(() => {})
+                    return
+                }
                 setMatches(searchResults.results)
                 setProgress(searchResults.progress)
                 setProgressState(searchResults.state)
             })
             setMatches([])
-            setLastSearch(current => ({
-                query,
-                caseSensitive: caseSensitive ?? current.caseSensitive,
-                patternType: patternType ?? current.patternType,
-                selectedSearchContextSpec: options?.contextSpec ?? current.selectedSearchContextSpec,
-            }))
+            setLastSearch(nextSearch)
+            saveLastSearch(nextSearch)
+            telemetryService.log('IDESearchSubmitted')
         },
-        [lastSearch, userQueryState.query]
+        [lastSearch, backendVersion, userQueryState.query, telemetryService, instanceURL, onSearchError]
     )
 
     const [didInitialSubmit, setDidInitialSubmit] = useState(false)
@@ -185,6 +221,7 @@ export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
             return
         }
         setDidInitialSubmit(true)
+
         if (initialSearch !== null) {
             onSubmit({
                 caseSensitive: initialSearch.caseSensitive,
@@ -195,71 +232,81 @@ export const App: React.FunctionComponent<React.PropsWithChildren<Props>> = ({
         }
     }, [initialSearch, onSubmit, didInitialSubmit])
 
-    useEffect(() => {
-        saveLastSearch(lastSearch)
-    }, [lastSearch, userQueryState])
+    const statusBar = useMemo(
+        () => <StatusBar progress={progress} progressState={progressState} authState={authState} />,
+        [progress, progressState, authState]
+    )
+
+    // We reset the search result list whenever a new search is initiated using key={getStableKeyForLastSearch(lastSearch)}
+    const searchResultList = useMemo(
+        () => (
+            <SearchResultList
+                matches={matches}
+                key={getStableKeyForLastSearch(lastSearch)}
+                onPreviewChange={onPreviewChange}
+                onPreviewClear={onPreviewClear}
+                onOpen={onOpen}
+                settingsCascade={settingsCascade}
+            />
+        ),
+        [lastSearch, matches, onOpen, onPreviewChange, onPreviewClear, settingsCascade]
+    )
+
+    const themeValue = useMemo(
+        () => ({ themeSetting: isDarkTheme ? ThemeSetting.Dark : ThemeSetting.Light }),
+        [isDarkTheme]
+    )
 
     return (
         <WildcardThemeContext.Provider value={{ isBranded: true }}>
-            {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
-            <div className={styles.root} onMouseDown={preventAll}>
-                <div className={styles.searchBoxContainer}>
-                    {/* eslint-disable-next-line react/forbid-elements */}
-                    <form
-                        className="d-flex m-0"
-                        onSubmit={event => {
-                            event.preventDefault()
-                            onSubmit()
-                        }}
-                    >
-                        <SearchBox
-                            caseSensitive={lastSearch.caseSensitive}
-                            setCaseSensitivity={caseSensitive => onSubmit({ caseSensitive })}
-                            patternType={lastSearch.patternType}
-                            setPatternType={patternType => onSubmit({ patternType })}
-                            isSourcegraphDotCom={isSourcegraphDotCom}
-                            hasUserAddedExternalServices={false}
-                            hasUserAddedRepositories={true} // Used for search context CTA, which we won't show here.
-                            structuralSearchDisabled={false}
-                            queryState={userQueryState}
-                            onChange={setUserQueryState}
-                            onSubmit={onSubmit}
-                            authenticatedUser={authenticatedUser}
-                            searchContextsEnabled={true}
-                            showSearchContext={true}
-                            showSearchContextManagement={false}
-                            defaultSearchContextSpec="global"
-                            setSelectedSearchContextSpec={contextSpec => onSubmit({ contextSpec })}
-                            selectedSearchContextSpec={lastSearch.selectedSearchContextSpec}
-                            fetchSearchContexts={fetchSearchContexts}
-                            fetchAutoDefinedSearchContexts={fetchAutoDefinedSearchContexts}
-                            getUserSearchContextNamespaces={getUserSearchContextNamespaces}
-                            fetchStreamSuggestions={fetchStreamSuggestionsWithStaticUrl}
-                            settingsCascade={settingsCascade}
-                            globbing={isGlobbingEnabled}
-                            isLightTheme={!isDarkTheme}
-                            telemetryService={NOOP_TELEMETRY_SERVICE} // TODO: Fix this, see VS Code's SearchResultsView.tsx
-                            platformContext={platformContext}
-                            className=""
-                            containerClassName=""
-                            autoFocus={true}
-                            editorComponent="monaco"
-                            hideHelpButton={true}
-                        />
-                    </form>
+            <ThemeContext.Provider value={themeValue}>
+                <GlobalKeyboardListeners />
+                {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+                <div className={styles.root} onMouseDown={preventAll}>
+                    <div className={styles.searchBoxContainer}>
+                        {/* eslint-disable-next-line react/forbid-elements */}
+                        <form
+                            className="d-flex m-0"
+                            onSubmit={event => {
+                                event.preventDefault()
+                                onSubmit()
+                            }}
+                        >
+                            <JetBrainsSearchBox
+                                caseSensitive={lastSearch.caseSensitive}
+                                setCaseSensitivity={caseSensitive => onSubmit({ caseSensitive })}
+                                patternType={lastSearch.patternType}
+                                setPatternType={patternType => onSubmit({ patternType })}
+                                isSourcegraphDotCom={isSourcegraphDotCom}
+                                structuralSearchDisabled={false}
+                                queryState={userQueryState}
+                                onChange={setUserQueryState}
+                                onSubmit={onSubmit}
+                                authenticatedUser={authenticatedUser}
+                                searchContextsEnabled={true}
+                                showSearchContext={true}
+                                showSearchContextManagement={false}
+                                setSelectedSearchContextSpec={contextSpec => onSubmit({ contextSpec })}
+                                selectedSearchContextSpec={lastSearch.selectedSearchContextSpec}
+                                fetchSearchContexts={fetchSearchContexts(backendVersion)}
+                                getUserSearchContextNamespaces={getUserSearchContextNamespaces}
+                                fetchStreamSuggestions={fetchStreamSuggestionsWithStaticUrl}
+                                settingsCascade={settingsCascade}
+                                telemetryService={telemetryService}
+                                platformContext={platformContext}
+                                className=""
+                                containerClassName=""
+                                autoFocus={true}
+                                hideHelpButton={true}
+                            />
+                        </form>
+                    </div>
+
+                    {statusBar}
+
+                    {searchResultList}
                 </div>
-
-                <StatusBar progress={progress} progressState={progressState} authState={authState} />
-
-                {/* We reset the search result list whenever a new search is initiated using key={getStableKeyForLastSearch(lastSearch)} */}
-                <SearchResultList
-                    matches={matches}
-                    key={getStableKeyForLastSearch(lastSearch)}
-                    onPreviewChange={onPreviewChange}
-                    onPreviewClear={onPreviewClear}
-                    onOpen={onOpen}
-                />
-            </div>
+            </ThemeContext.Provider>
         </WildcardThemeContext.Provider>
     )
 }

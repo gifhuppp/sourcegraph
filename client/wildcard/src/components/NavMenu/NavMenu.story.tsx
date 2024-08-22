@@ -1,40 +1,26 @@
-import { Meta, Story } from '@storybook/react'
+import { mdiPoll, mdiAntenna, mdiMenu, mdiMenuUp, mdiMenuDown } from '@mdi/js'
+import type { Meta, StoryFn } from '@storybook/react'
 import { noop } from 'lodash'
-import AntennaIcon from 'mdi-react/AntennaIcon'
-import BarChartIcon from 'mdi-react/BarChartIcon'
 import FileTreeOutlineIcon from 'mdi-react/FileTreeOutlineIcon'
-import MenuDownIcon from 'mdi-react/MenuDownIcon'
-import MenuIcon from 'mdi-react/MenuIcon'
-import MenuUpIcon from 'mdi-react/MenuUpIcon'
 import OpenInNewIcon from 'mdi-react/OpenInNewIcon'
 
-import { BrandedStory } from '@sourcegraph/branded/src/components/BrandedStory'
-import webStyles from '@sourcegraph/web/src/SourcegraphWebApp.scss'
-
+import { BrandedStory } from '../../stories/BrandedStory'
 import { Badge } from '../Badge'
 import { Button } from '../Button'
 import { Select } from '../Form'
 import { Icon } from '../Icon'
 
-import { NavMenu, NavMenuSectionProps } from './NavMenu'
+import { NavMenu, type NavMenuSectionProps } from './NavMenu'
 
 import styles from './NavMenu.module.scss'
 
 const config: Meta = {
     title: 'wildcard/NavMenu',
 
-    decorators: [
-        story => (
-            <BrandedStory styles={webStyles}>{() => <div className="container mt-3">{story()}</div>}</BrandedStory>
-        ),
-    ],
+    decorators: [story => <BrandedStory>{() => <div className="container mt-3">{story()}</div>}</BrandedStory>],
 
     parameters: {
         component: NavMenu,
-        chromatic: {
-            enableDarkMode: true,
-            disableSnapshot: false,
-        },
     },
 }
 
@@ -139,28 +125,28 @@ const navItems: NavMenuSectionProps[] = [
             {
                 content: 'About Sourcegraph',
                 suffixIcon: OpenInNewIcon,
-                to: 'https://about.sourcegraph.com',
+                to: 'https://sourcegraph.com',
                 key: 'Sourcegraph',
             },
             {
                 content: 'Browser Extension',
                 suffixIcon: OpenInNewIcon,
-                to: 'https://docs.sourcegraph.com/integration/browser_extension',
+                to: 'https://sourcegraph.com/docs/integration/browser_extension',
                 key: 'Extension',
             },
         ],
     },
 ]
 
-export const UserNav: Story = () => (
+export const UserNav: StoryFn = () => (
     <NavMenu
         navTrigger={{
             variant: 'icon',
             triggerContent: {
                 trigger: isOpen => (
                     <>
-                        <Icon role="img" aria-hidden={true} as="img" className={styles.avatar} src={avatarUrl} />
-                        <Icon role="img" aria-hidden={true} as={isOpen ? MenuUpIcon : MenuDownIcon} />
+                        <Icon aria-hidden={true} as="img" className={styles.avatar} src={avatarUrl} />
+                        <Icon aria-hidden={true} svgPath={isOpen ? mdiMenuUp : mdiMenuDown} />
                     </>
                 ),
             },
@@ -176,7 +162,7 @@ const singleSectionNavItems: NavMenuSectionProps[] = [
             {
                 content: (
                     <Button variant="link" className="w-100 text-left">
-                        <Icon role="img" aria-hidden={true} as={BarChartIcon} /> Insight
+                        <Icon aria-hidden={true} svgPath={mdiPoll} /> Insight
                     </Button>
                 ),
                 key: 'Insight',
@@ -184,7 +170,7 @@ const singleSectionNavItems: NavMenuSectionProps[] = [
             {
                 content: (
                     <Button variant="link" className="w-100 text-left">
-                        <Icon role="img" aria-hidden={true} as={AntennaIcon} /> Monitoring
+                        <Icon aria-hidden={true} svgPath={mdiAntenna} /> Monitoring
                     </Button>
                 ),
                 key: 'Monitoring',
@@ -193,7 +179,7 @@ const singleSectionNavItems: NavMenuSectionProps[] = [
     },
 ]
 
-export const SingleSectionNavMenuExample: Story = () => (
+export const SingleSectionNavMenuExample: StoryFn = () => (
     <NavMenu
         navTrigger={{
             variant: 'secondary',
@@ -201,8 +187,8 @@ export const SingleSectionNavMenuExample: Story = () => (
             triggerContent: {
                 trigger: isOpen => (
                     <>
-                        <Icon role="img" aria-hidden={true} as={MenuIcon} />
-                        <Icon role="img" aria-hidden={true} as={isOpen ? MenuUpIcon : MenuDownIcon} />
+                        <Icon aria-hidden={true} svgPath={mdiMenu} />
+                        <Icon aria-hidden={true} svgPath={isOpen ? mdiMenuUp : mdiMenuDown} />
                     </>
                 ),
             },

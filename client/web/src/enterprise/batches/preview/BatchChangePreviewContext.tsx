@@ -2,7 +2,11 @@ import React, { useState, useCallback } from 'react'
 
 import { noop, uniqBy } from 'lodash'
 
-import { ChangesetSpecOperation, ChangesetSpecPublicationStateInput, ChangesetState } from '../../../graphql-operations'
+import type {
+    ChangesetSpecOperation,
+    ChangesetSpecPublicationStateInput,
+    ChangesetState,
+} from '../../../graphql-operations'
 import { isValidChangesetSpecOperation, isValidChangesetState } from '../utils'
 
 export interface BatchChangePreviewFilters {
@@ -24,6 +28,10 @@ export interface BatchChangePreviewContextState {
     // when publishing.
     readonly filters: BatchChangePreviewFilters
     setFilters: (filters: BatchChangePreviewFilters) => void
+    // Be able to determine when the filter changes. This always having the context of know if all the visible
+    // changesets have changed.
+    readonly filtersChanged: boolean
+    setFiltersChanged: (changed: boolean) => void
     // Maps any changesets to modified publish statuses set from the UI, to be included in
     // the mutation to apply the preview.
     readonly publicationStates: ChangesetSpecPublicationStateInput[]
@@ -46,6 +54,8 @@ export interface BatchChangePreviewContextState {
 export const defaultState = (): BatchChangePreviewContextState => ({
     filters: defaultFilters(),
     setFilters: noop,
+    filtersChanged: false,
+    setFiltersChanged: noop,
     publicationStates: [],
     updatePublicationStates: noop,
     recalculationUpdates: [],
@@ -75,6 +85,7 @@ export const BatchChangePreviewContextProvider: React.FunctionComponent<React.Pr
             search: search ?? null,
         }
     })
+    const [filtersChanged, setFiltersChanged] = useState(false)
 
     const [publicationStates, setPublicationStates] = useState<ChangesetSpecPublicationStateInput[]>([])
 
@@ -122,6 +133,8 @@ export const BatchChangePreviewContextProvider: React.FunctionComponent<React.Pr
                 updatePublicationStates,
                 recalculationUpdates,
                 resolveRecalculationUpdates,
+                filtersChanged,
+                setFiltersChanged,
             }}
         >
             {children}

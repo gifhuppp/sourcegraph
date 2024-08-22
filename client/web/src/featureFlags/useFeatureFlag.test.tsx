@@ -1,72 +1,101 @@
-import { renderHook } from '@testing-library/react-hooks'
+import { renderHook, waitFor } from '@testing-library/react'
+import delay from 'delay'
+import { describe, expect, it } from 'vitest'
 
-import { FeatureFlagName } from './featureFlags'
-import { MockedFeatureFlagsProvider } from './FeatureFlagsProvider'
+import { MockedTestProvider } from '@sourcegraph/shared/src/testing/apollo'
+
+import { createFlagMock } from './createFlagMock'
+import type { FeatureFlagName } from './featureFlags'
 import { useFeatureFlag } from './useFeatureFlag'
 
 describe('useFeatureFlag', () => {
     const ENABLED_FLAG = 'enabled-flag' as FeatureFlagName
     const DISABLED_FLAG = 'disabled-flag' as FeatureFlagName
-    const setup = (initialFlagName: FeatureFlagName) =>
-        renderHook(({ flagName }) => useFeatureFlag(flagName), {
-            wrapper: function Wrapper({ children, overrides }) {
-                return (
-                    <MockedFeatureFlagsProvider
-                        overrides={
-                            new Map(
-                                Object.entries({ [ENABLED_FLAG]: true, ...overrides }) as [FeatureFlagName, boolean][]
-                            )
-                        }
-                    >
-                        {children}
-                    </MockedFeatureFlagsProvider>
-                )
+    const ERROR_FLAG = 'error-flag' as FeatureFlagName
+    const MOCKS = [
+        createFlagMock(ENABLED_FLAG, true),
+        createFlagMock(DISABLED_FLAG, false),
+        createFlagMock(ENABLED_FLAG, false),
+        createFlagMock(ERROR_FLAG, new Error('oops')),
+    ]
+
+    const setup = (initialFlagName: FeatureFlagName, defaultValue = false, cacheTTL?: number) => {
+        const flagStates = new Map()
+        const allResults: ReturnType<typeof useFeatureFlag>[] = []
+
+        const result = renderHook(
+            ({ flagName }) => {
+                const result = useFeatureFlag(flagName, defaultValue, cacheTTL, flagStates)
+                allResults.push(result)
+
+                return result
             },
-            initialProps: {
-                flagName: initialFlagName,
-                overrides: {
-                    [DISABLED_FLAG]: false,
+            {
+                wrapper: ({ children }) => <MockedTestProvider mocks={MOCKS}>{children}</MockedTestProvider>,
+                initialProps: {
+                    flagName: initialFlagName,
                 },
-            },
-        })
+            }
+        )
 
-    it('returns [false] value correctly', () => {
+        return {
+            ...result,
+            allResults,
+        }
+    }
+
+    it('returns [false] value correctly', async () => {
         const state = setup(DISABLED_FLAG)
+        // Initial state
+        expect(state.allResults[0]).toStrictEqual([false, 'initial', undefined])
 
-        expect(state.result.all[0]).toStrictEqual([false, 'initial', undefined])
-
-        expect(state.result.current).toStrictEqual([false, 'loaded', undefined])
-
-        expect(state.result.all.length).toBe(2)
+        // Loaded state
+        await waitFor(() => expect(state.result.current).toStrictEqual([false, 'loaded', undefined]))
     })
 
-    it('returns [true] value correctly', () => {
+    it('returns [true] value correctly', async () => {
         const state = setup(ENABLED_FLAG)
+        // Initial state
+        expect(state.allResults[0]).toStrictEqual([false, 'initial', undefined])
 
-        expect(state.result.all[0]).toStrictEqual([false, 'initial', undefined])
-
-        expect(state.result.current).toStrictEqual([true, 'loaded', undefined])
-
-        expect(state.result.all.length).toBe(2)
+        // Loaded state
+        await waitFor(() => expect(state.result.current).toStrictEqual([true, 'loaded', undefined]))
     })
 
-    it('updates when feature flag prop changes', () => {
-        const state = setup(ENABLED_FLAG)
+    it('updates on value change', async () => {
+        const state = setup(ENABLED_FLAG, false, 100)
+        // Initial state
+        expect(state.allResults[0]).toStrictEqual([false, 'initial', undefined])
 
-        expect(state.result.all[0]).toStrictEqual([false, 'initial', undefined])
-        expect(state.result.current).toStrictEqual([true, 'loaded', undefined])
+        // Loaded state
+        await waitFor(() => expect(state.result.current).toStrictEqual([true, 'loaded', undefined]))
 
-        state.rerender({ overrides: {}, flagName: DISABLED_FLAG })
-        expect(state.result.current).toStrictEqual([false, 'loaded', undefined])
+        // The cached value is used because of TTL.
+        await delay(50)
+        state.rerender({ flagName: ENABLED_FLAG })
+        await waitFor(() => expect(state.result.current).toStrictEqual([true, 'loaded', undefined]))
+
+        // The new value is fetched because the cache is stale.
+        await delay(50)
+        state.rerender({ flagName: ENABLED_FLAG })
+        await waitFor(() => expect(state.result.current).toStrictEqual([false, 'loaded', undefined]))
     })
 
-    it('returns "error" when no context parent', () => {
-        const state = renderHook(() => useFeatureFlag(ENABLED_FLAG))
+    it('updates when feature flag prop changes', async () => {
+        const state = setup(ENABLED_FLAG, false, undefined)
+        // Initial state
+        expect(state.result.current).toStrictEqual([false, 'initial', undefined])
+        // Loaded state
+        await waitFor(() => expect(state.result.current).toStrictEqual([true, 'loaded', undefined]))
 
-        expect(state.result.all[0]).toStrictEqual([false, 'initial', undefined])
+        // Rerender and wait for new state
+        state.rerender({ flagName: DISABLED_FLAG })
+        await waitFor(() => expect(state.result.current).toStrictEqual([false, 'loaded', undefined]))
+    })
 
-        expect(state.result.current).toEqual(expect.arrayContaining([false, 'error']))
+    it('returns "error" when unhandled error', async () => {
+        const state = setup(ERROR_FLAG)
 
-        expect(state.result.all.length).toBe(2)
+        await waitFor(() => expect(state.result.current).toEqual(expect.arrayContaining([false, 'error'])))
     })
 })

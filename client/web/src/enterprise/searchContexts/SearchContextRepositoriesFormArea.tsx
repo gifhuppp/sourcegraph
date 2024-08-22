@@ -1,15 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react'
 
-import * as jsonc from '@sqs/jsonc-parser'
-import { setProperty } from '@sqs/jsonc-parser/lib/edit'
-import CheckIcon from 'mdi-react/CheckIcon'
-import { useHistory } from 'react-router'
-import { Observable } from 'rxjs'
+import { mdiCheck } from '@mdi/js'
+import * as jsonc from 'jsonc-parser'
+import type { Observable } from 'rxjs'
 import { delay, mergeMap, startWith, tap } from 'rxjs/operators'
 
-import { ISearchContextRepositoryRevisions } from '@sourcegraph/shared/src/schema'
-import { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
-import { ThemeProps } from '@sourcegraph/shared/src/theme'
+import type { SearchContextRepositoryRevisionsFields } from '@sourcegraph/shared/src/graphql-operations'
+import type { TelemetryV2Props } from '@sourcegraph/shared/src/telemetry'
+import type { TelemetryProps } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import { Button, useEventObservable, Alert, Icon } from '@sourcegraph/wildcard'
 
 import { DynamicallyImportedMonacoSettingsEditor } from '../../settings/DynamicallyImportedMonacoSettingsEditor'
@@ -52,10 +50,12 @@ export const REPOSITORIES_REVISIONS_CONFIG_SCHEMA = {
     },
 }
 
-const defaultFormattingOptions: jsonc.FormattingOptions = {
-    eol: '\n',
-    insertSpaces: true,
-    tabSize: 2,
+const defaultModificationOptions: jsonc.ModificationOptions = {
+    formattingOptions: {
+        eol: '\n',
+        insertSpaces: true,
+        tabSize: 2,
+    },
 }
 
 const actions: {
@@ -68,21 +68,22 @@ const actions: {
         label: 'Add repository',
         run: config => {
             const value = { [REPOSITORY_KEY]: 'github.com/example/repository-name', [REVISIONS_KEY]: ['HEAD'] }
-            const edits = setProperty(config, [-1], value, defaultFormattingOptions)
+            const edits = jsonc.modify(config, [-1], value, defaultModificationOptions)
             return { edits, selectText: 'github.com/example/repository-name' }
         },
     },
 ]
 
-export interface SearchContextRepositoriesFormAreaProps extends ThemeProps, TelemetryProps {
-    repositories: ISearchContextRepositoryRevisions[] | undefined
+export interface SearchContextRepositoriesFormAreaProps extends TelemetryProps, TelemetryV2Props {
+    isLightTheme: boolean
+    repositories: SearchContextRepositoryRevisionsFields[] | undefined
     validateRepositories: () => Observable<Error[]>
     onChange: (config: string, isInitialValue?: boolean) => void
 }
 
 export const SearchContextRepositoriesFormArea: React.FunctionComponent<
     React.PropsWithChildren<SearchContextRepositoriesFormAreaProps>
-> = ({ isLightTheme, telemetryService, repositories, onChange, validateRepositories }) => {
+> = ({ isLightTheme, telemetryService, repositories, onChange, validateRepositories, telemetryRecorder }) => {
     const [hasTestedConfig, setHasTestedConfig] = useState(false)
     const [triggerTestConfig, triggerTestConfigErrors] = useEventObservable(
         useCallback(
@@ -108,7 +109,7 @@ export const SearchContextRepositoriesFormArea: React.FunctionComponent<
             : 'Test configuration'
 
     const isValidConfig =
-        hasTestedConfig && typeof triggerTestConfigErrors !== 'undefined' && triggerTestConfigErrors.length === 0
+        hasTestedConfig && triggerTestConfigErrors !== undefined && triggerTestConfigErrors.length === 0
 
     const [repositoriesConfig, setRepositoriesConfig] = useState('')
     useEffect(
@@ -128,7 +129,6 @@ export const SearchContextRepositoriesFormArea: React.FunctionComponent<
         []
     )
 
-    const history = useHistory()
     return (
         <div data-testid="repositories-config-area">
             <DynamicallyImportedMonacoSettingsEditor
@@ -139,8 +139,8 @@ export const SearchContextRepositoriesFormArea: React.FunctionComponent<
                 onChange={onChange}
                 height={300}
                 isLightTheme={isLightTheme}
-                history={history}
                 telemetryService={telemetryService}
+                telemetryRecorder={telemetryRecorder}
                 blockNavigationIfDirty={false}
             />
             {triggerTestConfigErrors && triggerTestConfigErrors !== LOADING && triggerTestConfigErrors.length > 0 && (
@@ -165,13 +165,12 @@ export const SearchContextRepositoriesFormArea: React.FunctionComponent<
                 {isValidConfig ? (
                     <span className="d-flex align-items-center">
                         <Icon
-                            role="img"
                             aria-hidden={true}
                             as="span"
                             data-testid="repositories-config-success"
                             className="text-success mr-1"
                         >
-                            <CheckIcon />{' '}
+                            <Icon svgPath={mdiCheck} inline={false} aria-hidden={true} />{' '}
                         </Icon>
                         <span>Valid configuration</span>
                     </span>

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/sourcegraph/sourcegraph/lib/output"
+	"github.com/sourcegraph/sourcegraph/lib/pointers"
 )
 
 // Output is a wrapper with convenience functions for sg output.
@@ -19,37 +20,56 @@ type Output struct {
 // Out is the standard output which is instantiated when sg gets run.
 var Out *Output
 
+// DisableOutputDetection, if enabled, replaces all calls to NewOutput with NewFixedOutput.
+var DisableOutputDetection bool
+
 // NewOutput instantiates a new output instance for local use with inferred configuration.
 func NewOutput(dst io.Writer, verbose bool) *Output {
 	inBuildkite := os.Getenv("BUILDKITE") == "true"
+	if DisableOutputDetection {
+		o := NewFixedOutput(dst, verbose)
+		o.buildkite = inBuildkite
+		return o
+	}
 
 	return &Output{
 		Output: output.NewOutput(dst, output.OutputOpts{
-			ForceColor: true,
-			ForceTTY:   true,
-			Verbose:    verbose,
-
-			// Buildkite output is always against a dark background, so we disable the
-			// detection. Note that for some reason the dark background detection hangs
-			// indefinitely in Buildkite, so ForceDarkBackground being set is a required.
-			ForceDarkBackground: inBuildkite,
+			Verbose: verbose,
 		}),
 		buildkite: inBuildkite,
 	}
 }
 
 // NewFixedOutput instantiates a new output instance with fixed configuration, useful for
-// testing or on platforms/scenarios with problematic terminal detection.
+// platforms/scenarios with problematic terminal detection.
 func NewFixedOutput(dst io.Writer, verbose bool) *Output {
 	return &Output{
-		Output: output.NewOutput(dst, output.OutputOpts{
-			ForceColor:          true,
-			ForceTTY:            true,
-			Verbose:             verbose,
-			ForceWidth:          80,
-			ForceHeight:         25,
-			ForceDarkBackground: true,
-		}),
+		Output: output.NewOutput(dst, newStaticOutputOptions(verbose)),
+	}
+}
+
+// NewSimpleOutput returns a fixed width and height output that does not forcibly enable
+// TTY and color, useful for testing and getting simpler output.
+func NewSimpleOutput(dst io.Writer, verbose bool) *Output {
+	opts := newStaticOutputOptions(verbose)
+	opts.ForceTTY = pointers.Ptr(false)
+	opts.ForceColor = false
+
+	return &Output{
+		Output: output.NewOutput(dst, opts),
+	}
+}
+
+// newStaticOutputOptions creates static output options that disables all terminal
+// infernce.
+func newStaticOutputOptions(verbose bool) output.OutputOpts {
+	return output.OutputOpts{
+		ForceColor:          true,
+		ForceTTY:            pointers.Ptr(true),
+		Verbose:             verbose,
+		ForceWidth:          80,
+		ForceHeight:         25,
+		ForceDarkBackground: true,
 	}
 }
 
@@ -64,11 +84,11 @@ func (o *Output) writeExpanded(line output.FancyLine) {
 	o.WriteLine(line)
 }
 
-// WriteHeading writes a line that is prefixed Buildkite log output management stuffs such
+// writeCollapsed writes a line that is prefixed Buildkite log output management stuffs such
 // that subsequent lines are collapsed if we are in Buildkite.
 //
 // Learn more: https://buildkite.com/docs/pipelines/managing-log-output
-func (o *Output) writeCollapsed(line output.FancyLine) {
+func (o *Output) writeCollapsed(line output.FancyLine) { //nolint:unused
 	if o.buildkite {
 		line.Prefix = "---"
 	}
@@ -126,4 +146,22 @@ func (o *Output) WriteAlertf(fmtStr string, args ...any) {
 // In Buildkite it expands the current section to make it visible.
 func (o *Output) WriteNoticef(fmtStr string, args ...any) {
 	o.writeExpanded(output.Linef(output.EmojiFingerPointRight, output.StyleBold, fmtStr, args...))
+}
+
+// Promptf prints a prompt for user input, and should be followed by an fmt.Scan or similar.
+func (o *Output) Promptf(fmtStr string, args ...any) {
+	l := output.Linef(output.EmojiFingerPointRight, output.StyleBold, fmtStr, args...)
+	o.FancyPrompt(l)
+}
+
+// FancyPrompt prints a prompt for user input, and should be followed by an fmt.Scan or similar.
+func (o *Output) FancyPrompt(l output.FancyLine) {
+	l.Prompt = true
+	o.WriteLine(l)
+}
+
+// PromptPasswordf tries to securely prompt a user for sensitive input.
+func (o *Output) PromptPasswordf(input io.Reader, fmtStr string, args ...any) (string, error) {
+	l := output.Linef(output.EmojiFingerPointRight, output.StyleBold, fmtStr, args...)
+	return o.PromptPassword(input, l)
 }

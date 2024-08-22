@@ -15,11 +15,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/sourcegraph/log"
+
 	"github.com/sourcegraph/sourcegraph/lib/codeintel/lsif/conversion"
 	"github.com/sourcegraph/sourcegraph/lib/codeintel/lsif/validation"
 	"github.com/sourcegraph/sourcegraph/lib/codeintel/precise"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
-	"github.com/sourcegraph/sourcegraph/lib/log"
 )
 
 type projectResult struct {
@@ -81,10 +82,10 @@ func main() {
 		os.Setenv("SRC_LOG_FORMAT", "console")
 		os.Setenv("SRC_DEVELOPMENT", "true")
 	}
-	syncLogs := log.Init(log.Resource{Name: "lsif-index-tester"})
-	defer syncLogs()
+	liblog := log.Init(log.Resource{Name: "lsif-index-tester"})
+	defer liblog.Sync()
 
-	logger := log.Scoped(raw_indexer, "indexer testing").With(log.String("directory", directory))
+	logger := log.Scoped(raw_indexer).With(log.String("directory", directory))
 
 	if raw_indexer == "" {
 		logger.Fatal("Indexer is required. Pass with --indexer")
@@ -176,7 +177,7 @@ func testProject(ctx context.Context, logger log.Logger, indexer []string, proje
 	}
 
 	logger.Debug("... Completed setup project")
-	result, err := runIndexer(ctx, logger.Scoped("run", "run indexer"), indexer, project, name)
+	result, err := runIndexer(ctx, logger.Scoped("run"), indexer, project, name)
 	if err != nil {
 		return projectResult{
 			name:   name,
@@ -199,7 +200,7 @@ func testProject(ctx context.Context, logger log.Logger, indexer []string, proje
 	}
 	logger.Debug("... Read bundle")
 
-	testResult, err := validateTestCases(logger.Scoped("validate", "validate test cases"), project, bundle)
+	testResult, err := validateTestCases(logger.Scoped("validate"), project, bundle)
 	if err != nil {
 		return projectResult{name: name}, err
 	}
@@ -260,13 +261,13 @@ func validateDump(directory string) (bundleResult, error) {
 	}
 
 	if len(ctx.Errors) > 0 {
-		errors := make([]string, len(ctx.Errors)+1)
-		errors[0] = fmt.Sprintf("Detected %d errors", len(ctx.Errors))
+		errs := make([]string, len(ctx.Errors)+1)
+		errs[0] = fmt.Sprintf("Detected %d errors", len(ctx.Errors))
 		for i, err := range ctx.Errors {
-			errors[i+1] = fmt.Sprintf("%d. %s", i, err)
+			errs[i+1] = fmt.Sprintf("%d. %s", i, err)
 		}
 
-		return bundleResult{Valid: false, Errors: errors}, nil
+		return bundleResult{Valid: false, Errors: errs}, nil
 	}
 
 	return bundleResult{Valid: true}, nil
@@ -479,11 +480,11 @@ func runOneReferencesRequest(projectRoot string, bundle *precise.GroupedBundleDa
 func runOneDefinitionRequest(logger log.Logger, projectRoot string, bundle *precise.GroupedBundleDataMaps, testCase DefinitionTest, fileResult *testFileResult) error {
 	request := testCase.Request
 
-	path := request.TextDocument
+	docPath := request.TextDocument
 	line := request.Position.Line
 	character := request.Position.Character
 
-	results, err := precise.Query(bundle, path, line, character)
+	results, err := precise.Query(bundle, docPath, line, character)
 	if err != nil {
 		return err
 	}
@@ -536,7 +537,7 @@ func runOneDefinitionRequest(logger log.Logger, projectRoot string, bundle *prec
 
 func transformLocationToResponse(location precise.LocationData) Location {
 	return Location{
-		URI: "file://" + location.URI,
+		URI: "file://" + location.DocumentPath,
 		Range: Range{
 			Start: Position{
 				Line:      location.StartLine,

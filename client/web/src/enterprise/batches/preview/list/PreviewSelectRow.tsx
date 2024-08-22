@@ -1,13 +1,13 @@
 import React, { useMemo, useContext } from 'react'
 
+import { mdiInformationOutline } from '@mdi/js'
 import { noop } from 'lodash'
-import InfoCircleOutlineIcon from 'mdi-react/InfoCircleOutlineIcon'
 
 import { pluralize } from '@sourcegraph/common'
 import { Button, useObservable, Icon } from '@sourcegraph/wildcard'
 
-import { BatchSpecApplyPreviewVariables, Scalars } from '../../../../graphql-operations'
-import { Action, DropdownButton } from '../../DropdownButton'
+import type { BatchSpecApplyPreviewVariables, Scalars } from '../../../../graphql-operations'
+import { type Action, DropdownButton } from '../../DropdownButton'
 import { MultiSelectContext } from '../../MultiSelectContext'
 import { BatchChangePreviewContext } from '../BatchChangePreviewContext'
 
@@ -41,13 +41,16 @@ const ACTIONS: Action[] = [
 // Returns the desired `PublishedValue` for the given action.
 const getPublicationStateFromAction = (action: Action): Scalars['PublishedValue'] => {
     switch (action.type) {
-        case 'publish':
+        case 'publish': {
             return true
-        case 'publish-draft':
+        }
+        case 'publish-draft': {
             return 'draft'
+        }
         case 'unpublish':
-        default:
+        default: {
             return false
+        }
     }
 }
 
@@ -77,10 +80,10 @@ export const PreviewSelectRow: React.FunctionComponent<React.PropsWithChildren<P
     const { areAllVisibleSelected, deselectAll, selected, selectAll } = useContext(MultiSelectContext)
 
     const allChangesetSpecIDs: string[] | undefined = useObservable(
-        useMemo(() => queryPublishableChangesetSpecIDs(queryArguments), [
-            queryArguments,
-            queryPublishableChangesetSpecIDs,
-        ])
+        useMemo(
+            () => queryPublishableChangesetSpecIDs(queryArguments),
+            [queryArguments, queryPublishableChangesetSpecIDs]
+        )
     )
 
     const actions = useMemo(
@@ -119,7 +122,7 @@ export const PreviewSelectRow: React.FunctionComponent<React.PropsWithChildren<P
         <>
             <div className="row align-items-center no-gutters mb-3">
                 <div className="ml-2 col d-flex align-items-center">
-                    <Icon role="img" aria-hidden={true} className="text-muted mr-2" as={InfoCircleOutlineIcon} />
+                    <Icon aria-hidden={true} className="text-muted mr-2" svgPath={mdiInformationOutline} />
                     {selected === 'all' || allChangesetSpecIDs?.length === selected.size ? (
                         <AllSelectedLabel count={allChangesetSpecIDs?.length} />
                     ) : (

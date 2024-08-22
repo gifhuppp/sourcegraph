@@ -2,13 +2,16 @@
 package output
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 
 	"github.com/charmbracelet/glamour"
 	glamouransi "github.com/charmbracelet/glamour/ansi"
 	"github.com/mattn/go-runewidth"
+	"golang.org/x/term"
 
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
@@ -56,8 +59,8 @@ var _ sync.Locker = &Output{}
 type OutputOpts struct {
 	// ForceColor ignores all terminal detection and enabled coloured output.
 	ForceColor bool
-	// ForceTTY ignores all terminal detection and enables TTY output.
-	ForceTTY bool
+	// ForceTTY ignores all terminal detection if non-nil and sets TTY output.
+	ForceTTY *bool
 
 	// ForceHeight ignores all terminal detection and sets the height to this value.
 	ForceHeight int
@@ -71,6 +74,16 @@ type OutputOpts struct {
 	Verbose bool
 }
 
+type MarkdownStyleOpts func(style *glamouransi.StyleConfig)
+
+var MarkdownNoMargin MarkdownStyleOpts = func(style *glamouransi.StyleConfig) {
+	z := uint(0)
+	style.CodeBlock.Margin = &z
+	style.Document.Margin = &z
+	style.Document.BlockPrefix = ""
+	style.Document.BlockSuffix = ""
+}
+
 // newOutputPlatformQuirks provides a way for conditionally compiled code to
 // hook into NewOutput to perform any required setup.
 var newOutputPlatformQuirks func(o *Output) error
@@ -81,25 +94,18 @@ var newOutputPlatformQuirks func(o *Output) error
 var newCapabilityWatcher = func(opts OutputOpts) chan capabilities { return nil }
 
 func NewOutput(w io.Writer, opts OutputOpts) *Output {
-	caps, detectionErr := detectCapabilities(opts)
+	// Not being able to detect capabilities is alright. It might mean output will look
+	// weird but that should not prevent us from running.
+	// Before, we logged an error
+	// "An error was returned when detecting the terminal size and capabilities"
+	// but it was super noisy and confused people into thinking something would be broken.
+	caps, _ := detectCapabilities(opts)
 
 	o := &Output{caps: caps, verbose: opts.Verbose, w: w}
 	if newOutputPlatformQuirks != nil {
 		if err := newOutputPlatformQuirks(o); err != nil {
 			o.Verbosef("Error handling platform quirks: %v", err)
 		}
-	}
-
-	// If we got an error earlier, now is where we'll report it to the user.
-	if detectionErr != nil {
-		block := o.Block(Linef(EmojiWarning, StyleWarning, "An error was returned when detecting the terminal size and capabilities:"))
-		block.Write("")
-		block.Write(detectionErr.Error())
-		block.Write("")
-		block.Write("Execution will continue, but please report this, along with your operating")
-		block.Write("system, terminal, and any other details, to:")
-		block.Write("  https://github.com/sourcegraph/sourcegraph/issues/new")
-		block.Close()
 	}
 
 	// Set up a watcher so we can adjust the size of the output if the terminal
@@ -118,23 +124,32 @@ func NewOutput(w io.Writer, opts OutputOpts) *Output {
 func (o *Output) Lock() {
 	o.lock.Lock()
 
-	// Hide the cursor while we update: this reduces the jitteriness of the
-	// whole thing, and some terminals are smart enough to make the update we're
-	// about to render atomic if the cursor is hidden for a short length of
-	// time.
-	o.w.Write([]byte("\033[?25l"))
+	if o.caps.Isatty {
+		// Hide the cursor while we update: this reduces the jitteriness of the
+		// whole thing, and some terminals are smart enough to make the update we're
+		// about to render atomic if the cursor is hidden for a short length of
+		// time.
+		o.w.Write([]byte("\033[?25l"))
+	}
 }
 
 func (o *Output) SetVerbose() {
 	o.lock.Lock()
 	defer o.lock.Unlock()
 	o.verbose = true
+}
 
+func (o *Output) UnsetVerbose() {
+	o.lock.Lock()
+	defer o.lock.Unlock()
+	o.verbose = false
 }
 
 func (o *Output) Unlock() {
-	// Show the cursor once more.
-	o.w.Write([]byte("\033[?25h"))
+	if o.caps.Isatty {
+		// Show the cursor once more.
+		o.w.Write([]byte("\033[?25h"))
+	}
 
 	o.lock.Unlock()
 }
@@ -176,11 +191,6 @@ func (o *Output) WriteLine(line FancyLine) {
 	line.write(o.w, o.caps)
 }
 
-// WriteBytes writes bytes as a string line. It can be provided to run.Cmd(...).StreamLines()
-func (o *Output) WriteBytes(b []byte) {
-	o.Write(string(b))
-}
-
 // Block starts a new block context. This should not be invoked if there is an
 // active Pending or Progress context.
 func (o *Output) Block(summary FancyLine) *Block {
@@ -214,17 +224,50 @@ func (o *Output) ProgressWithStatusBars(bars []ProgressBar, statusBars []*Status
 	return newProgressWithStatusBars(bars, statusBars, o, opts)
 }
 
-// WriteMarkdown renders Markdown nicely, unless color is disabled.
-func (o *Output) WriteMarkdown(str string) error {
-	return o.writeMarkdown(str, false)
+type readWriter struct {
+	io.Reader
+	io.Writer
+}
+
+// PromptPassword tries to securely prompt a user for sensitive input.
+func (o *Output) PromptPassword(input io.Reader, prompt FancyLine) (string, error) {
+	o.lock.Lock()
+	defer o.lock.Unlock()
+
+	// Render the prompt
+	prompt.Prompt = true
+	var promptText bytes.Buffer
+	prompt.write(&promptText, o.caps)
+
+	// If input is a file and terminal, read from it directly
+	if f, ok := input.(*os.File); ok {
+		fd := int(f.Fd())
+		if term.IsTerminal(fd) {
+			_, _ = o.w.Write(promptText.Bytes())
+			val, err := term.ReadPassword(fd)
+			_, _ = o.w.Write([]byte("\n")) // once we've read an input
+			return string(val), err
+		}
+	}
+
+	// Otherwise, create a terminal
+	t := term.NewTerminal(&readWriter{Reader: input, Writer: o.w}, "")
+	_ = t.SetSize(o.caps.Width, o.caps.Height)
+	return t.ReadPassword(promptText.String())
+}
+
+func MarkdownIndent(n uint) MarkdownStyleOpts {
+	return func(style *glamouransi.StyleConfig) {
+		style.Document.Indent = &n
+	}
 }
 
 // WriteCode renders the given code snippet as Markdown, unless color is disabled.
 func (o *Output) WriteCode(languageName, str string) error {
-	return o.writeMarkdown(fmt.Sprintf("```%s\n%s\n```", languageName, str), true)
+	return o.WriteMarkdown(fmt.Sprintf("```%s\n%s\n```", languageName, str), MarkdownNoMargin)
 }
 
-func (o *Output) writeMarkdown(str string, noMargin bool) error {
+func (o *Output) WriteMarkdown(str string, opts ...MarkdownStyleOpts) error {
 	if !o.caps.Color {
 		o.Write(str)
 		return nil
@@ -237,12 +280,8 @@ func (o *Output) writeMarkdown(str string, noMargin bool) error {
 		style = glamour.LightStyleConfig
 	}
 
-	if noMargin {
-		z := uint(0)
-		style.CodeBlock.Margin = &z
-		style.Document.Margin = &z
-		style.Document.BlockPrefix = ""
-		style.Document.BlockSuffix = ""
+	for _, opt := range opts {
+		opt(&style)
 	}
 
 	r, err := glamour.NewTermRenderer(
@@ -251,6 +290,7 @@ func (o *Output) writeMarkdown(str string, noMargin bool) error {
 		// wrap output at slightly less than terminal width
 		glamour.WithWordWrap(o.caps.Width*4/5),
 		glamour.WithEmoji(),
+		glamour.WithPreservedNewLines(),
 	)
 	if err != nil {
 		return errors.Wrap(err, "renderer")
